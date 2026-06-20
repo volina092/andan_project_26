@@ -203,7 +203,6 @@ if (!exists("udpipe_ru", envir = .GlobalEnv)) {
   model_info <- udpipe_download_model(language = "russian-syntagrus")
   udpipe_ru <- udpipe_load_model(model_info$file_model)
 }
-model_info
 ```
 
 ```{r lemmatize-functions}
