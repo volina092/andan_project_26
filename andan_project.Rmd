@@ -1,0 +1,1168 @@
+---
+title: "Стилиометрический анализ текстов Донцовой"
+author: "Маша Волина"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    lang: ru
+    theme: flatly
+    code_folding: show
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = TRUE,
+  warning = FALSE,
+  eval = FALSE
+)
+```
+
+# О проекте
+
+**Идея:** проверка авторской однородности корпуса Дарьи Донцовой.
+
+**H₀:** все книги, опубликованные под именем Дарьи Донцовой, имеют единый стилистический профиль.
+
+**H₁:** книги Дарьи Донцовой демонстрируют статистически значимые различия в стилистическом профиле (вероятно, по периодам публикации).
+
+## Материал
+
+| Роль | Автор | Число текстов |
+|------|-------|---------------|
+| Кандидат | Дарья Донцова | 20 |
+| Дистрактор | Татьяна Устинова | 5 |
+| Дистрактор | Татьяна Полякова | 5 |
+| Дистрактор | Александра Марининой | 5 |
+| Дистрактор | Маша Трауб | 5 |
+
+Дистракторы подобраны как близкие по жанру (детектив / «дамская» проза) авторы с сопоставимым объёмом выборки. У Донцовой тексты из разных **серий** и **лет публикации**.
+
+
+---
+
+# 1. Предобработка для лексического анализа
+
+Для **дельты Бёрроуза** (stylo) и для **TTR** нужен единообразный лексический слой: слова в нижнем регистре, без пунктуации, разделённые пробелами. Словоформы — в `books_tokens/`; леммы — в `books_lemmas/`.
+
+Исходник для обоих шагов: **`books_clean/`**.
+
+## Пакеты
+
+```{r packages-lexical}
+library(tidyverse)
+library(readr)
+library(stringr)
+library(tidytext)
+library(stylo)
+```
+
+## Пути
+
+```{r paths}
+project_root <- if (requireNamespace("rprojroot", quietly = TRUE)) {
+  rprojroot::find_root(rprojroot::is_git_root)
+} else {
+  getwd()
+}
+
+path_meta        <- file.path(project_root, "corpus_metadata.csv")
+path_books_clean <- file.path(project_root, "books_clean")
+path_tokens      <- file.path(project_root, "books_tokens")
+
+meta <- read_csv(
+  path_meta,
+  locale = locale(encoding = "UTF-8"),
+  show_col_types = FALSE
+) %>%
+  mutate(
+    роль = if_else(автор == "Дарья Донцова", "кандидат", "дистрактор"),
+    folder_path_clean_texts = file.path(path_books_clean, папка, имя_файла),
+    folder_path_tokens = file.path(path_tokens, папка, имя_файла)
+  )
+```
+
+## Функция: один файл
+
+Нормализация: нижний регистр, всё, кроме русских/латинских букв и пробелов, заменяется пробелом; лишние пробелы удалены. На выходе — `.txt`.
+
+```{r clean-for-lexical}
+clean_for_lexical <- function(input_file, output_file) {
+  text <- read_lines(
+    input_file,
+    locale = locale(encoding = "UTF-8"),
+    progress = FALSE
+  ) %>%
+    paste(collapse = " ")
+
+  text_clean <- text %>%
+    str_to_lower() %>%
+    str_replace_all("[^а-яёa-z\\s]", " ") %>%
+    str_squish()
+
+  dir.create(dirname(output_file), recursive = TRUE, showWarnings = FALSE)
+  write_lines(
+    text_clean,
+    output_file
+  )
+
+  invisible(text_clean)
+}
+```
+
+```{r}
+# Проверить clean_for_lexical() на одном файле
+# clean_for_lexical(
+#   meta$folder_path_clean_texts[21],
+#   meta$folder_path_tokens[21]
+# )
+```
+
+## Функция: весь корпус
+
+```{r tokenize-corpus}
+tokenize_corpus <- function(
+    metadata = meta,
+    input_col = "folder_path_clean_texts",
+    output_col = "folder_path_tokens"
+) {
+
+  for (i in seq_len(nrow(metadata))) {
+    
+    input_path <- meta[[input_col]][i]
+    output_path <- meta[[output_col]][i]
+    print(paste0("Обрабатываю ", i, "/", nrow(meta), ": ", basename(input_path)))
+    
+    if (!file.exists(input_path)) {
+      stop("Нет файла: ", input_path)
+    }
+    clean_for_lexical(input_path, output_path)
+  }
+  # 
+  message("Токенизировано файлов: ", nrow(meta))
+  invisible(meta)
+}
+
+tokenize_corpus()
+```
+
+## Проверка (после запуска)
+
+```{r check-tokens}
+# map_dbl(meta$folder_path_tokens, ~ length(str_split(read_lines(.x), " ")[[1]]))
+
+meta %>%
+  mutate(
+    "количество токенов" = map_dbl(folder_path_tokens, ~ {
+      txt <- read_lines(.x, locale = locale(encoding = "UTF-8"))
+      length(str_split(txt, "\\s+")[[1]])
+    })
+  ) %>%
+  select(автор, название, роль, "количество токенов") %>%
+  print(n = 40)
+```
+
+## Лемматизация
+
+Для **TTR** и гапаксов разумнее считать леммы, а не словоформы.
+
+Источник: **`books_clean/`** (как при токенизации). Результат: **`books_lemmas/`**.
+
+Пакет **udpipe** (модель `russian`).
+
+```{r packages-lemmas}
+library(udpipe)
+```
+
+```{r paths-lemmas}
+path_lemmas <- file.path(project_root, "books_lemmas")
+
+meta <- meta %>%
+  mutate(
+    folder_path_lemmas = file.path(path_lemmas, папка, имя_файла),
+    леммы_есть = file.exists(folder_path_lemmas)
+  )
+
+# TRUE — пересчитать только отсутствующие файлы; FALSE — не трогать udpipe вообще
+recompute_lemmas <- FALSE
+```
+
+
+```{r udpipe-model}
+# модель загружается один раз за сессию
+if (!exists("udpipe_ru", envir = .GlobalEnv)) {
+  model_info <- udpipe_download_model(language = "russian")
+  udpipe_ru <- udpipe_load_model(model_info$file_model)
+}
+```
+
+```{r lemmatize-functions}
+# леммы без пунктуации
+lemmatize_text <- function(text, model = udpipe_ru) {
+  annotated <- udpipe(text, object = model)
+
+  annotated %>%
+    filter(!upos %in% c("PUNCT", "SYM", "X")) %>%
+    mutate(lemma = str_to_lower(lemma)) %>%
+    filter(str_detect(lemma, "^[а-яёa-z]+$")) %>%
+    pull(lemma) %>%
+    paste(collapse = " ")
+}
+
+lemmatize_for_lexical <- function(input_file, output_file, model = udpipe_ru) {
+  text <- read_lines(
+    input_file,
+    locale = locale(encoding = "UTF-8"),
+    progress = FALSE
+  ) %>%
+    paste(collapse = "\n")
+
+  text_lemmas <- lemmatize_text(text, model = model) %>%
+    str_squish()
+
+  dir.create(dirname(output_file), recursive = TRUE, showWarnings = FALSE)
+  write_lines(text_lemmas, output_file)
+
+  invisible(text_lemmas)
+}
+```
+
+```{r lemmatize-one-test}
+# проверка на одном файле
+# lemmatize_for_lexical(
+#   meta$folder_path_clean_texts[1],
+#   meta$folder_path_lemmas[1]
+# )
+```
+
+## Лемматизация: весь корпус
+
+```{r lemmatize-corpus}
+lemmatize_corpus <- function(
+    metadata = meta,
+    input_col = "folder_path_clean_texts",
+    output_col = "folder_path_lemmas",
+    model = udpipe_ru,
+    skip_existing = TRUE
+) {
+  for (i in seq_len(nrow(metadata))) {
+    input_path <- metadata[[input_col]][i]
+    output_path <- metadata[[output_col]][i]
+
+    if (!file.exists(input_path)) {
+      stop("Нет файла: ", input_path)
+    }
+    if (skip_existing && file.exists(output_path)) {
+      message("Пропуск (уже есть): ", basename(output_path))
+      next
+    }
+
+    print(paste0("Лемматизирую ", i, "/", nrow(metadata), ": ", basename(input_path)))
+    lemmatize_for_lexical(input_path, output_path, model = model)
+  }
+
+  message("Готово. Файлов в ", output_col, ": ", sum(file.exists(metadata[[output_col]])))
+  invisible(metadata)
+}
+
+# полный пересчёт: lemmatize_corpus(skip_existing = FALSE)
+# только недостающие: lemmatize_corpus(skip_existing = TRUE)
+# при recompute_lemmas == FALSE — не вызывается lemmatize_corpus()
+if (isTRUE(recompute_lemmas)) {
+  lemmatize_corpus(skip_existing = TRUE)
+}
+```
+
+## Проверка лемм (после запуска)
+
+```{r check-lemmas}
+meta %>%
+  mutate(
+    "количество лемм" = map_dbl(folder_path_lemmas, ~ {
+      if (!file.exists(.x)) return(NA_real_)
+      txt <- read_lines(.x, locale = locale(encoding = "UTF-8"))
+      length(str_split(txt, "\\s+")[[1]])
+    })
+  ) %>%
+  select(автор, название, роль, "количество лемм") %>%
+  print(n = 40)
+```
+
+---
+
+# 2. Лексические метрики (TTR, гапаксы)
+
+**TTR** (type/token ratio) — отношение числа типов (уникальных лемм) к числу токенов (всех лемм в тексте):
+
+$$\text{TTR} = \frac{\text{types}}{\text{tokens}}$$
+
+<!-- Чем ниже TTR, тем больше повторяемость лексики. -->
+
+Источник: лемматизированные файлы в `books_lemmas/` (для stylo по-прежнему — `books_tokens/`).
+
+## TTR по книгам
+
+```{r ttr-functions}
+read_tokens <- function(path) {
+  read_lines(path, locale = locale(encoding = "UTF-8"), progress = FALSE) %>%
+    str_split("\\s+") %>%
+    unlist() %>%
+    .[. != ""]
+}
+
+compute_ttr <- function(path) {
+  words <- read_tokens(path)
+  tibble(
+    tokens = length(words),
+    types  = n_distinct(words),
+    ttr    = types / tokens
+  )
+}
+```
+
+```{r ttr-by-book}
+ttr_books <- meta %>%
+  mutate(lexical = map(folder_path_lemmas, compute_ttr)) %>%
+  unnest(lexical) %>%
+  select(автор, название, роль, серия, год, tokens, types, ttr)
+
+ttr_books %>%
+  arrange(роль, автор, год) %>%
+  print(n = 40)
+```
+
+```{r ttr-summary}
+ttr_books %>%
+  group_by(роль) %>%
+  summarise(
+    n = n(),
+    ttr_среднее = mean(ttr),
+    ttr_медиана = median(ttr),
+    ttr_мин = min(ttr),
+    ttr_макс = max(ttr),
+    .groups = "drop"
+  )
+```
+
+## Визуализация
+
+```{r ttr-plot-role, fig.width = 8, fig.height = 5}
+ggplot(ttr_books, aes(x = роль, y = ttr, fill = роль)) +
+  geom_boxplot(alpha = 0.5, outlier.shape = NA) +
+  geom_jitter(width = 0.15, size = 2, alpha = 0.8) +
+  labs(
+    title = "TTR по роли (кандидат vs дистракторы)",
+    x = NULL,
+    y = "TTR (types / tokens)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+```{r ttr-plot-author, fig.width = 10, fig.height = 6}
+ggplot(ttr_books, aes(x = reorder(автор, ttr, median), y = ttr, colour = роль)) +
+  geom_boxplot(alpha = 0.4, outlier.shape = NA) +
+  geom_jitter(width = 0.15, size = 1.8, alpha = 0.85) +
+  labs(
+    title = "TTR по автору",
+    x = NULL,
+    y = "TTR (types / tokens)",
+    colour = "Роль"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+```
+
+## TTR внутри корпуса Донцовой
+
+```{r ttr-dontsova}
+ttr_dontsova <- ttr_books %>%
+  filter(роль == "кандидат") %>%
+  arrange(год)
+
+ttr_dontsova %>%
+  select(название, серия, год, tokens, types, ttr) %>%
+  print(n = 20)
+```
+
+```{r ttr-dontsova-year, fig.width = 9, fig.height = 5}
+ggplot(ttr_dontsova, aes(x = год, y = ttr)) +
+  geom_point(aes(colour = серия), size = 3) +
+  geom_smooth(method = "loess", se = TRUE, colour = "grey40", linewidth = 0.8) +
+  labs(
+    title = "TTR книг Дарьи Донцовой по году публикации",
+    x = "Год",
+    y = "TTR (types / tokens)",
+    colour = "Серия"
+  ) +
+  theme_minimal()
+```
+
+## Гапаксы (hapax legomena)
+
+**Гапакс** — лемма, встречающаяся в тексте ровно один раз.
+<!-- Считаем по `books_lemmas/`: -->
+
+- `hapax` — число гапаксов (абсолютное);
+- `hapax_per_type` = hapax / types — доля редких лемм среди словаря;
+- `hapax_per_token` = hapax / tokens — доля гапаксов среди всех лемм.
+
+```{r hapax-functions}
+compute_hapax <- function(path) {
+  words <- read_tokens(path)
+  freq <- table(words)
+
+  hapax <- sum(freq == 1L)
+  types <- length(freq)
+  tokens <- length(words)
+
+  tibble(
+    hapax = hapax,
+    hapax_per_type = hapax / types,
+    hapax_per_token = hapax / tokens
+  )
+}
+```
+
+```{r hapax-by-book}
+hapax_books <- meta %>%
+  mutate(hapax_stats = map(folder_path_lemmas, compute_hapax)) %>%
+  unnest(hapax_stats) %>%
+  left_join(
+    ttr_books %>% select(название, tokens, types, ttr),
+    by = "название"
+  ) %>%
+  select(автор, название, роль, серия, год, tokens, types, ttr, hapax, hapax_per_type, hapax_per_token)
+
+hapax_books %>%
+  arrange(роль, автор, год) %>%
+  print(n = 40)
+```
+
+```{r hapax-summary}
+hapax_books %>%
+  group_by(роль) %>%
+  summarise(
+    n = n(),
+    hapax_среднее = mean(hapax),
+    hapax_per_type_среднее = mean(hapax_per_type),
+    hapax_per_token_среднее = mean(hapax_per_token),
+    .groups = "drop"
+  )
+```
+
+
+```{r hapax-plot-role, fig.width = 8, fig.height = 5}
+ggplot(hapax_books, aes(x = роль, y = hapax_per_type, fill = роль)) +
+  geom_boxplot(alpha = 0.5, outlier.shape = NA) +
+  geom_jitter(width = 0.15, size = 2, alpha = 0.8) +
+  labs(
+    title = "Доля гапаксов среди типов (по роли)",
+    x = NULL,
+    y = "hapax / types"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+```{r hapax-plot-author, fig.width = 10, fig.height = 6}
+ggplot(hapax_books, aes(x = reorder(автор, hapax_per_type, median), y = hapax_per_type, colour = роль)) +
+  geom_boxplot(alpha = 0.4, outlier.shape = NA) +
+  geom_jitter(width = 0.15, size = 1.8, alpha = 0.85) +
+  labs(
+    title = "Доля гапаксов среди типов (по автору)",
+    x = NULL,
+    y = "hapax / types",
+    colour = "Роль"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+```
+
+## Гапаксы внутри корпуса Донцовой
+
+```{r hapax-dontsova}
+hapax_dontsova <- hapax_books %>%
+  filter(роль == "кандидат") %>%
+  arrange(год)
+
+hapax_dontsova %>%
+  select(название, серия, год, hapax, hapax_per_type, hapax_per_token) %>%
+  print(n = 20)
+```
+
+```{r hapax-dontsova-year, fig.width = 9, fig.height = 5}
+ggplot(hapax_dontsova, aes(x = год, y = hapax_per_type)) +
+  geom_point(aes(colour = серия), size = 3) +
+  geom_smooth(method = "loess", se = TRUE, colour = "grey40", linewidth = 0.8) +
+  labs(
+    title = "Доля гапаксов (Донцова) по году публикации",
+    colour = "Серия"
+  ) +
+  theme_minimal()
+```
+
+## Интерпретация лексических метрик
+
+```{r lexical-interpretation, eval=TRUE, echo=FALSE, results='asis'}
+if (!exists("ttr_books") || !exists("hapax_books")) {
+  knitr::asis_output(
+    "<p><em>Нет объектов <code>ttr_books</code> / <code>hapax_books</code> — выполните chunks <code>ttr-by-book</code> и <code>hapax-by-book</code> выше.</em></p>"
+  )
+} else {
+  fmt <- function(x) format(round(x, 4), nsmall = 4, decimal.mark = ",")
+
+  ttr_role <- ttr_books %>%
+    group_by(роль) %>%
+    summarise(
+      mean_ttr = mean(ttr),
+      med_ttr = median(ttr),
+      .groups = "drop"
+    )
+
+  ttr_author <- ttr_books %>%
+    group_by(автор) %>%
+    summarise(med_ttr = median(ttr), .groups = "drop") %>%
+    arrange(desc(med_ttr))
+
+  ttr_d <- ttr_books %>% filter(роль == "кандидат")
+  ttr_lo <- ttr_d %>% slice_min(ttr, n = 1, with_ties = FALSE)
+  ttr_hi <- ttr_d %>% slice_max(ttr, n = 1, with_ties = FALSE)
+
+  hap_role <- hapax_books %>%
+    group_by(роль) %>%
+    summarise(mean_hpt = mean(hapax_per_type), med_hpt = median(hapax_per_type), .groups = "drop")
+
+  hap_d <- hapax_books %>% filter(роль == "кандидат")
+
+  cand_ttr <- ttr_role$mean_ttr[ttr_role$роль == "кандидат"]
+  dist_ttr <- ttr_role$mean_ttr[ttr_role$роль == "дистрактор"]
+  cand_hpt <- hap_role$mean_hpt[hap_role$роль == "кандидат"]
+  dist_hpt <- hap_role$mean_hpt[hap_role$роль == "дистрактор"]
+
+  cat("#### TTR\n\n")
+  cat("**Между ролями.** Средний TTR кандидата (", fmt(cand_ttr), ") **выше**, чем у дистракторов в совокупности (", fmt(dist_ttr), "). ", sep = "")
+  cat("Медиана TTR у Дарьи Донцовой (", fmt(ttr_author$med_ttr[ttr_author$автор == "Дарья Донцова"]), ") — наибольшая среди пяти авторов корпуса; ", sep = "")
+  cat("наименьшие медианы — у Александры Марининой и Татьяны Устиновой. ")
+  cat("Следовательно, по показателю types/tokens профиль кандидата **не совпадает** со средним профилем дистракторов: ")
+  cat("тексты Донцовой демонстрируют **бóльшую** относительную лексическую вариативность при сопоставимом объёме.\n\n")
+
+  cat("**Внутри корпуса Донцовой (H₀ / H₁).** Разброс TTR по 20 книгам невелик ")
+  cat("(σ = ", fmt(sd(ttr_d$ttr)), ", диапазон ", fmt(min(ttr_d$ttr)), "–", fmt(max(ttr_d$ttr)), "). ", sep = "")
+  cat("Минимум — «", ttr_lo$название, "» (", ttr_lo$год, "); максимум — «", ttr_hi$название, "» (", ttr_hi$год, "). ", sep = "")
+  cat("На графике по годам **не выявляется** выраженного монотонного тренда; отклонения отдельных текстов ")
+  cat("не группируются устойчиво по серии. **Для H₁** TTR даёт **слабое** эксплоранторное основание; ")
+  cat("**для H₀** — **согласуется** с относительной лексической стабильностью подкорпуса кандидата.\n\n")
+
+  cat("#### Гапаксы (hapax / types)\n\n")
+  cat("**Между ролями.** Средняя доля гапаксов у кандидата (", fmt(cand_hpt), ") ", sep = "")
+  cat("**практически совпадает** с дистракторами (", fmt(dist_hpt), "). ", sep = "")
+  cat("Медианы по авторам различаются незначительно; Донцова занимает промежуточное положение в корпусе.\n\n")
+
+  cat("**Внутри корпуса Донцовой.** Разброс hapax/types умеренный (σ = ", fmt(sd(hap_d$hapax_per_type)), "). ", sep = "")
+  cat("Показатель **не дифференцирует** кандидата от дистракторов и **слабо информативен** для проверки H₀/H₁: ")
+  cat("зафиксирована сходная степень «насыщенности» единичными леммами, типичная для жанра, ")
+  cat("без выраженного диахронного или серийного сигнала.\n")
+}
+```
+
+---
+
+# 4. Стилиометрия: дельта Бёрроуза (stylo)
+
+**Дельта Бёрроуза** сравнивает частотные профили текстов (чаще всего — N самых частых словоформ, MFW). 
+
+Используем `books_tokens/` (не леммы).
+
+<!-- MFW -- Most Frequent Words  -->
+
+Интерпретация в проекте:
+
+- **весь корпус (40 текстов):** кластеризуются ли 20 книг Донцовой вместе, отдельно от дистракторов;
+
+- **только Донцова (20 текстов):** насколько тексты расходятся внутри автора.
+
+
+## Подготовка корпуса для stylo
+
+<!-- ! `stylo()` ищет `.txt` в `corpus.dir` (без вложенных папок).  -->
+
+```{r stylo-prep}
+build_stylo_corpus <- function(metadata, token_paths_col, out_dir, max_words = NULL) {
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+  # stylo читает list.files(corpus.dir) — подпапки тоже попадают в список и ломают загрузку
+  old_dirs <- list.dirs(out_dir, recursive = FALSE, full.names = TRUE)
+  if (length(old_dirs)) unlink(old_dirs, recursive = TRUE)
+  old_txt <- list.files(out_dir, pattern = "\\.txt$", full.names = TRUE)
+  if (length(old_txt)) unlink(old_txt)
+
+  for (i in seq_len(nrow(metadata))) {
+    src <- metadata[[token_paths_col]][i]
+    dst_name <- paste0(metadata$папка[i], "__", metadata$имя_файла[i])
+    dst <- file.path(out_dir, dst_name)
+
+    if (!file.exists(src)) {
+      stop("Нет файла: ", src)
+    }
+
+    # одно слово на строку, иначе процесс идёт 20+ минут или падает
+    words <- read_lines(src, locale = locale(encoding = "UTF-8"), progress = FALSE) %>%
+      paste(collapse = " ") %>%
+      str_split("\\s+") %>%
+      unlist() %>%
+      .[. != ""]
+
+    if (!is.null(max_words)) {
+      words <- head(words, max_words)
+    }
+
+    write_lines(words, dst)
+  }
+
+  invisible(out_dir)
+}
+
+path_stylo_all <- file.path(project_root, "corpus_stylo")
+path_stylo_dontsova <- file.path(project_root, "corpus_stylo_dontsova")
+path_stylo_out <- file.path(project_root, "output", "stylo")
+
+dir.create(path_stylo_out, recursive = TRUE, showWarnings = FALSE)
+
+build_stylo_corpus(meta, "folder_path_tokens", path_stylo_all)
+build_stylo_corpus(
+  meta %>% filter(роль == "кандидат"),
+  "folder_path_tokens",
+  path_stylo_dontsova
+)
+```
+
+```{r stylo-check}
+length(list.files(path_stylo_all, pattern = "\\.txt$"))
+length(list.files(path_stylo_dontsova, pattern = "\\.txt$"))
+list.dirs(path_stylo_all, recursive = FALSE)  # должно быть character(0)
+list.files(path_stylo_dontsova, pattern = "\\.txt$")[1:3]
+```
+
+## Параметры анализа
+
+```{r stylo-settings}
+stylo_mfw_min <- 100
+stylo_mfw_max <- 1000
+stylo_mfw_step <- 100
+stylo_distance <- "delta"
+stylo_analysis <- "BCT"
+
+# кириллица в PDF: стандартный шрифт Helvetica её не содержит
+cyr_font <- if (.Platform$OS.type == "windows") "Segoe UI" else "DejaVu Sans"
+grDevices::pdf.options(family = cyr_font)
+```
+
+## Весь корпус: кандидат vs дистракторы
+
+```{r stylo-all, fig.width = 10, fig.height = 8}
+dir.create(file.path(path_stylo_out, "all_40"), recursive = TRUE, showWarnings = FALSE)
+
+stylo_result <- stylo(
+  corpus.dir = normalizePath(path_stylo_all, winslash = "/"),
+  interactive = FALSE,
+  corpus.lang = "Other",
+  encoding = "UTF-8",
+  mfw.min = 100,
+  mfw.max = 100,
+  mfw.increase = 1,
+  analysis = "CA",
+  distance.measure = "delta",
+  display.on.screen = FALSE,
+  write.pdf.file = FALSE,
+  write.png.file = TRUE,
+  png.dir = normalizePath(file.path(path_stylo_out, "all_40"), winslash = "/")
+)
+
+save(stylo_result, file = file.path(path_stylo_out, "all_40", "stylo_result.RData"))
+```
+
+```{r stylo-all-export-plots, fig.width = 11, fig.height = 10}
+# load(file.path(path_stylo_out, "all_40", "stylo_result.RData"))
+
+out_dir <- file.path(path_stylo_out, "all_40")
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+# шрифт с кириллицей для PDF (в Helvetica нет кириллицы)
+if (!exists("cyr_font")) {
+  cyr_font <- if (.Platform$OS.type == "windows") "Segoe UI" else "DejaVu Sans"
+}
+grDevices::pdf.options(family = cyr_font)
+
+theme_cyr <- function(base_size = 11) {
+  theme_minimal(base_size = base_size, base_family = cyr_font) +
+    theme(text = element_text(family = cyr_font))
+}
+
+ggsave_pdf <- function(filename, plot, width, height) {
+  if (capabilities("cairo")) {
+    ggsave(
+      filename, plot, width = width, height = height,
+      device = grDevices::cairo_pdf, family = cyr_font
+    )
+  } else {
+    ggsave(
+      filename, plot, width = width, height = height,
+      device = grDevices::pdf, family = cyr_font
+    )
+  }
+}
+
+delta_mat <- as.matrix(stylo_result$distance.table)
+
+# непустые rownames или colnames
+file_ids <- rownames(delta_mat)
+if (is.null(file_ids) || any(file_ids == "", na.rm = TRUE)) {
+  file_ids <- colnames(delta_mat)
+}
+
+stylo_labels <- meta %>%
+  mutate(stylo_id = paste0(папка, "__", имя_файла)) %>%
+  mutate(
+    # подпись для графиков: «Фамилия Год Название»
+    фамилия = word(автор, -1),
+    подпись = str_squish(paste(фамилия, год, название))
+  )
+
+# сопоставляем stylo-имена файлов с подписями из meta (stylo может убирать «.txt» в rownames)
+file_ids_norm <- sub("\\.txt$", "", file_ids)
+stylo_ids_norm <- sub("\\.txt$", "", stylo_labels$stylo_id)
+
+idx <- match(file_ids_norm, stylo_ids_norm)
+pretty_labels <- stylo_labels$подпись[idx]
+authors <- stylo_labels$автор[idx]
+
+# если что-то не сопоставилось — оставляем техническое имя, чтобы не было пустых rownames
+if (any(is.na(pretty_labels))) {
+  warning("Не сопоставлены с meta: ", paste(file_ids[is.na(pretty_labels)], collapse = ", "))
+  pretty_labels[is.na(pretty_labels)] <- file_ids[is.na(pretty_labels)]
+}
+
+# переименовывать строки/столбцы матрицы δ для heatmap и dendrogram
+rownames(delta_mat) <- colnames(delta_mat) <- pretty_labels
+
+# Тепловая карта δ
+delta_long <- delta_mat %>%
+  as.data.frame(check.names = FALSE) %>%
+  rownames_to_column(var = "text_1") %>%
+  pivot_longer(-text_1, names_to = "text_2", values_to = "delta")
+
+p_heat <- ggplot(delta_long, aes(x = text_1, y = text_2, fill = delta)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(
+    title = "Дельта Бёрроуза (40 текстов, MFW = 100)",
+    x = NULL, y = NULL, fill = "δ"
+  ) +
+  theme_cyr() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 7, family = cyr_font),
+    axis.text.y = element_text(size = 7, family = cyr_font)
+  )
+
+ggsave(file.path(out_dir, "delta_heatmap_40.png"), p_heat, width = 14, height = 12, dpi = 150)
+ggsave_pdf(file.path(out_dir, "delta_heatmap_40.pdf"), p_heat, width = 14, height = 12)
+
+# 2. MDS (2D)
+mds_xy <- cmdscale(as.dist(delta_mat), k = 2)
+p_mds <- tibble(
+  подпись = pretty_labels,
+  author = authors,
+  X1 = mds_xy[, 1],
+  X2 = mds_xy[, 2]
+) %>%
+  ggplot(aes(x = X1, y = X2, colour = author)) +
+  geom_point(size = 3, alpha = 0.85) +
+  labs(
+    title = "MDS по дельте Бёрроуза (40 текстов)",
+    x = "Dim 1", y = "Dim 2", colour = "Автор"
+  ) +
+  theme_cyr()
+
+if (requireNamespace("ggrepel", quietly = TRUE)) {
+  p_mds <- p_mds + ggrepel::geom_text_repel(
+    aes(label = подпись), size = 2.8, max.overlaps = 50, family = cyr_font
+  )
+}
+
+ggsave(file.path(out_dir, "delta_mds_40.png"), p_mds, width = 12, height = 10, dpi = 150)
+ggsave_pdf(file.path(out_dir, "delta_mds_40.pdf"), p_mds, width = 12, height = 10)
+
+# 3. Дендрограмма
+hc <- hclust(as.dist(delta_mat), method = "ward.D2")
+hc$labels <- pretty_labels
+
+save_dendro <- function(path, width, height, res = NULL, use_cairo = FALSE) {
+  max_lab_chars <- max(nchar(pretty_labels, type = "width"), na.rm = TRUE)
+  # при horiz = TRUE подписи справа — нужен большой правый отступ (mar[4]), не левый
+  mar_right <- max(16, min(40, max_lab_chars * 0.42))
+  mar_spec <- c(4, 2, 4, mar_right)
+
+  if (!is.null(res)) {
+    png(path, width = width, height = height, res = res, family = cyr_font)
+  } else if (use_cairo && capabilities("cairo")) {
+    grDevices::cairo_pdf(path, width = width, height = height, family = cyr_font)
+  } else {
+    pdf(path, width = width, height = height, family = cyr_font)
+  }
+
+  par(mar = mar_spec, family = cyr_font, xpd = FALSE)
+  plot(
+    as.dendrogram(hc),
+    horiz = TRUE,
+    xlab = "δ",
+    sub = "",
+    cex = 0.55,
+    main = "Кластеризация по δ (40 текстов)"
+  )
+  dev.off()
+}
+
+save_dendro(
+  file.path(out_dir, "delta_dendrogram_40.png"),
+  width = 1800, height = 2200, res = 120
+)
+save_dendro(
+  file.path(out_dir, "delta_dendrogram_40.pdf"),
+  width = 18, height = 16, use_cairo = TRUE
+)
+
+write.csv(delta_mat, file.path(out_dir, "distance_table_40.csv"), fileEncoding = "UTF-8")
+
+list.files(out_dir, pattern = "\\.(png|pdf)$")
+```
+
+## Только Дарья Донцова (20 книг)
+
+```{r stylo-dontsova, fig.width = 10, fig.height = 8}
+dir.create(file.path(path_stylo_out, "dontsova_20"), recursive = TRUE, showWarnings = FALSE)
+
+stylo(
+  corpus.dir = normalizePath(path_stylo_dontsova, winslash = "/"),
+  interactive = FALSE,
+  corpus.lang = "Other",
+  encoding = "UTF-8",
+  delete.stopwords = FALSE,
+  mfw.min = stylo_mfw_min,
+  mfw.max = stylo_mfw_max,
+  mfw.increase = stylo_mfw_step,
+  analysis = stylo_analysis,
+  distance.measure = stylo_distance,
+  display.on.screen = FALSE,
+  write.pdf.file = FALSE,
+  write.png.file = TRUE,
+  png.dir = normalizePath(file.path(path_stylo_out, "dontsova_20"), winslash = "/")
+)
+```
+
+При H₀ (единый стиль Донцовой) книги образуют одну устойчивую ветвь, а при H₁ (различия по периодам) — **несколько подкластеров** (например, по годам/сериям), это визуальная поддержка альтернативы. Окончательный вывод — вместе с TTR и статистикой.
+
+```{r stylo-dontsova-delta}
+compute_delta_matrix <- function(corpus_dir, mfw = 500) {
+  files <- list.files(corpus_dir, pattern = "\\.txt$", full.names = FALSE)
+
+  corpus <- load.corpus.and.parse(
+    files = files,
+    corpus.dir = corpus_dir,
+    language = "Other",
+    encoding = "UTF-8"
+  )
+
+  feat <- make.frequency.list(corpus, head = mfw, relative = TRUE)
+
+  mat <- make.table.of.frequencies(
+    corpus,
+    features = feat,
+    relative = TRUE
+  )
+
+  as.matrix(dist.delta(mat))
+}
+
+stylo_mfw_dontsova <- 500
+delta_dontsova <- compute_delta_matrix(path_stylo_dontsova, mfw = stylo_mfw_dontsova)
+dim(delta_dontsova)
+```
+
+```{r stylo-dontsova-export-plots, fig.width = 11, fig.height = 10}
+# load(file.path(path_stylo_out, "dontsova_20", "delta_dontsova.RData"))  # после сохранения ниже
+
+if (!exists("delta_dontsova")) {
+  stop("Сначала выполнить stylo-dontsova-delta")
+}
+
+out_dir <- file.path(path_stylo_out, "dontsova_20")
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+if (!exists("cyr_font")) {
+  cyr_font <- if (.Platform$OS.type == "windows") "Segoe UI" else "DejaVu Sans"
+}
+grDevices::pdf.options(family = cyr_font)
+
+theme_cyr <- function(base_size = 11) {
+  theme_minimal(base_size = base_size, base_family = cyr_font) +
+    theme(text = element_text(family = cyr_font))
+}
+
+ggsave_pdf <- function(filename, plot, width, height) {
+  if (capabilities("cairo")) {
+    ggsave(
+      filename, plot, width = width, height = height,
+      device = grDevices::cairo_pdf, family = cyr_font
+    )
+  } else {
+    ggsave(
+      filename, plot, width = width, height = height,
+      device = grDevices::pdf, family = cyr_font
+    )
+  }
+}
+
+delta_mat <- delta_dontsova
+
+file_ids <- rownames(delta_mat)
+if (is.null(file_ids) || any(file_ids == "", na.rm = TRUE)) {
+  file_ids <- colnames(delta_mat)
+}
+
+stylo_labels <- meta %>%
+  filter(роль == "кандидат") %>%
+  mutate(stylo_id = paste0(папка, "__", имя_файла)) %>%
+  mutate(
+    фамилия = word(автор, -1),
+    подпись = str_squish(paste(фамилия, год, название)),
+    подпись_краткая = str_squish(paste(год, название))
+  )
+
+file_ids_norm <- sub("\\.txt$", "", file_ids)
+stylo_ids_norm <- sub("\\.txt$", "", stylo_labels$stylo_id)
+
+idx <- match(file_ids_norm, stylo_ids_norm)
+pretty_labels <- stylo_labels$подпись[idx]
+pretty_short <- stylo_labels$подпись_краткая[idx]
+years <- stylo_labels$год[idx]
+
+if (any(is.na(pretty_labels))) {
+  warning("Не сопоставлены с meta: ", paste(file_ids[is.na(pretty_labels)], collapse = ", "))
+  pretty_labels[is.na(pretty_labels)] <- file_ids[is.na(pretty_labels)]
+  pretty_short[is.na(pretty_short)] <- file_ids[is.na(pretty_short)]
+  years[is.na(years)] <- NA_integer_
+}
+
+rownames(delta_mat) <- colnames(delta_mat) <- pretty_labels
+
+mfw_lab <- if (exists("stylo_mfw_dontsova")) stylo_mfw_dontsova else 500
+
+# 1. Тепловая карта δ
+delta_long <- delta_mat %>%
+  as.data.frame(check.names = FALSE) %>%
+  rownames_to_column(var = "text_1") %>%
+  pivot_longer(-text_1, names_to = "text_2", values_to = "delta")
+
+p_heat <- ggplot(delta_long, aes(x = text_1, y = text_2, fill = delta)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(
+    title = paste0("Дельта Бёрроуза (20 книг Донцовой, MFW = ", mfw_lab, ")"),
+    x = NULL, y = NULL, fill = "δ"
+  ) +
+  theme_cyr() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8, family = cyr_font),
+    axis.text.y = element_text(size = 8, family = cyr_font)
+  )
+
+ggsave(file.path(out_dir, "delta_heatmap_20.png"), p_heat, width = 12, height = 11, dpi = 150)
+ggsave_pdf(file.path(out_dir, "delta_heatmap_20.pdf"), p_heat, width = 12, height = 11)
+
+# 2. MDS (цвет — год публикации)  
+mds_xy <- cmdscale(as.dist(delta_mat), k = 2)
+p_mds <- tibble(
+  подпись = pretty_short,
+  год = years,
+  X1 = mds_xy[, 1],
+  X2 = mds_xy[, 2]
+) %>%
+  ggplot(aes(x = X1, y = X2, colour = год)) +
+  geom_point(size = 3.5, alpha = 0.9) +
+  scale_colour_viridis_c(option = "plasma") +
+  labs(
+    title = paste0("MDS по дельте Бёрроуза (Донцова, MFW = ", mfw_lab, ")"),
+    x = "Dim 1", y = "Dim 2", colour = "Год"
+  ) +
+  theme_cyr()
+
+if (requireNamespace("ggrepel", quietly = TRUE)) {
+  p_mds <- p_mds + ggrepel::geom_text_repel(
+    aes(label = подпись), size = 3, max.overlaps = 30, family = cyr_font
+  )
+}
+
+ggsave(file.path(out_dir, "delta_mds_20.png"), p_mds, width = 11, height = 9, dpi = 150)
+ggsave_pdf(file.path(out_dir, "delta_mds_20.pdf"), p_mds, width = 11, height = 9)
+
+# 3. Дендрограмма
+hc <- hclust(as.dist(delta_mat), method = "ward.D2")
+hc$labels <- pretty_labels
+
+save_dendro <- function(path, width, height, res = NULL, use_cairo = FALSE) {
+  max_lab_chars <- max(nchar(pretty_labels, type = "width"), na.rm = TRUE)
+  mar_right <- max(14, min(36, max_lab_chars * 0.42))
+  mar_spec <- c(4, 2, 4, mar_right)
+
+  if (!is.null(res)) {
+    png(path, width = width, height = height, res = res, family = cyr_font)
+  } else if (use_cairo && capabilities("cairo")) {
+    grDevices::cairo_pdf(path, width = width, height = height, family = cyr_font)
+  } else {
+    pdf(path, width = width, height = height, family = cyr_font)
+  }
+
+  par(mar = mar_spec, family = cyr_font, xpd = FALSE)
+  plot(
+    as.dendrogram(hc),
+    horiz = TRUE,
+    xlab = "δ",
+    sub = "",
+    cex = 0.6,
+    main = paste0("Кластеризация по δ (Донцова, MFW = ", mfw_lab, ")")
+  )
+  dev.off()
+}
+
+save_dendro(
+  file.path(out_dir, "delta_dendrogram_20.png"),
+  width = 1600, height = 1400, res = 120
+)
+save_dendro(
+  file.path(out_dir, "delta_dendrogram_20.pdf"),
+  width = 16, height = 12, use_cairo = TRUE
+)
+
+write.csv(delta_mat, file.path(out_dir, "distance_table_20.csv"), fileEncoding = "UTF-8")
+save(delta_dontsova, file = file.path(out_dir, "delta_dontsova.RData"))
+
+list.files(out_dir, pattern = "\\.(png|pdf|csv)$")
+```
+
+---
+
+# 5. Результаты: визуализация и интерпретация
+
+Ниже выводятся сохранённые графики стилиометрии из `output/stylo/`.
+
+```{r results-report-setup, include=FALSE, eval=TRUE}
+knitr::opts_chunk$set(fig.align = "center", out.width = "95%", echo = FALSE)
+
+results_root <- if (requireNamespace("rprojroot", quietly = TRUE)) {
+  rprojroot::find_root(rprojroot::is_git_root)
+} else {
+  getwd()
+}
+
+show_stylo_fig <- function(rel_path, dpi = 96) {
+  p <- file.path(results_root, rel_path)
+  if (!file.exists(p)) {
+    return(knitr::asis_output(paste0(
+      "<p><em>Нет файла <code>", rel_path,
+      "</code> — выполните chunk экспорта графиков в разделе 4.</em></p>"
+    )))
+  }
+  knitr::include_graphics(p, dpi = dpi)
+}
+```
+
+## Лексическое разнообразие и гапаксы (разделы 2–3)
+
+### TTR
+
+**Между ролями.** Средний TTR кандидата (0,1722) выше, чем у дистракторов в совокупности (0,1441). Медиана TTR у Дарьи Донцовой (0,1729) — наибольшая среди пяти авторов. По показателю types/tokens профиль кандидата не совпадает со средним профилем дистракторов: тексты Донцовой демонстрируют бóльшую относительную лексическую вариативность. Гипотеза H₀ подтверждается.
+
+**Внутри корпуса Донцовой.** Разброс TTR по 20 книгам невелик (σ ≈ 0,0086; диапазон 0,156–0,196).Выраженного монотонного тренда по году не прослеживается. Наверное, это аргумент в пользу H₀.
+
+#### Гапаксы (hapax / types)
+
+**Между ролями.** Средняя доля гапаксов у кандидата (0,5562) практически совпадает со среденей долей у дистракторов (0,5505); медианы также близки (0,554 vs 0,547).
+
+**Внутри корпуса Донцовой.** Разброс умеренный (σ ≈ 0,010). Сходная доля единичных лемм, типичная для жанра, без выраженного периодного или серийного сигнала.
+
+---
+
+## Стилиометрия: корпус 40 текстов (MFW = 100)
+
+**Постановка.** На смешанном корпусе (20 текстов кандидата, по 5 текстов у четырёх дистракторов) оценивается, выделяется ли стилистический профиль Дарьи Донцовой на фоне близких жанрово авторов.
+
+### Тепловая карта δ
+
+Матрица попарных расстояний Бёрроуза (δ). На используемой шкале более светлые ячейки соответствуют меньшим значениям δ, то есть большей стилистической близости пары текстов.
+
+```{r fig-heatmap-40, eval=TRUE, fig.cap="Матрица дельты Бёрроуза, 40 текстов (MFW = 100)"}
+show_stylo_fig("output/stylo/all_40/delta_heatmap_40.png")
+```
+
+*Комментарий.* Подматрицы (блоки 20×20 для кандидата и 5×5 для дистракторов) внутри одного автора светлее, чем ячейки пар автор А × автор Б. Блок Донцова × Донцова выделяется как светлая область на фоне смешанных сравнений с дистракторами — это свидетельствует о том, что частотный профиль (на выбранном MFW) согласуется с принадлежностью к автору-кандидату.
+
+<!-- Локально более тёмные клетки внутри блока 20×20 отражают попарную дистанцию между отдельными книгами Донцовой. -->
+
+### MDS
+
+Классическое многомерное шкалирование (MDS) по матрице δ; цвет точек — автор.
+
+```{r fig-mds-40, eval=TRUE, fig.cap="MDS по матрице δ, 40 текстов"}
+show_stylo_fig("output/stylo/all_40/delta_mds_40.png")
+```
+
+*Комментарий.* Кластеризация точек по метке автора указывает на доминирование межавторского компонента в дисперсии δ. Пространственное отделение облака текстов Донцовой от дистракторов подтверждает, что на уровне смешанного корпуса стилистический сигнал автора-кандидата различим.
+
+### Дендрограмма
+
+Иерархическая кластеризация (метод Уорда, `ward.D2`) по δ.
+
+```{r fig-dendro-40, eval=TRUE, fig.cap="Иерархическая кластеризация по δ, 40 текстов"}
+show_stylo_fig("output/stylo/all_40/delta_dendrogram_40.png", dpi = 110)
+```
+
+*Комментарий.* Слияние всех 20 текстов кандидата в одну ветвь при относительно раннем объединении текстов каждого дистрактора может быть интерпретирована как авторская структура дистанций. Такая топология дерева поддерживает вывод о различимости кандидата в полном корпусе.
+
+---
+
+## Стилиометрия: подкорпус Донцовой (20 текстов, MFW = 500)
+
+Проверяется **H₁**: наличие статистически осмысленных внутриавторских различий (в т.ч. по периоду публикации или серии). **H₀** предполагает отсутствие устойчивых подкластеров, не объясняемых случайной дисперсией.
+
+### Тепловая карта δ
+
+```{r fig-heatmap-20, eval=TRUE, fig.cap="Матрица δ, 20 текстов Дарьи Донцовой (MFW = 500)"}
+show_stylo_fig("output/stylo/dontsova_20/delta_heatmap_20.png")
+```
+
+*Комментарий.* На карте 20×20 анализируются только внутриавторские δ. Матрица однородно тёмная, без выраженной структуры, что согласуется с **H₀** на эксплоранторном уровне.
+
+### MDS
+
+Координаты MDS; цвет — год публикации, подписи — «год + название».
+
+```{r fig-mds-20, eval=TRUE, fig.cap="MDS по δ, подкорпус Донцовой"}
+show_stylo_fig("output/stylo/dontsova_20/delta_mds_20.png")
+```
+
+*Комментарий.* На графике прослеживается направленная диахроническая структура: точки выстраиваются в траекторию, с которой согласован год публикации (цветовая шкала). Ранние тексты (1999–2002) группируются в левой части плоскости (высокие значения Dim 2), тексты середины 2000‑х — в нижней зоне, более поздние (2010‑е) смещаются вправо, а блок 2014–2022 — в верхнюю правую область.
+
+Наблюдается стилистический "дрейф", заметна структуры (основание тоже понятно — год публикации). Это эксплоранторно согласуется с H₁.
+
+### Дендрограмма
+
+```{r fig-dendro-20, eval=TRUE, fig.cap="Иерархическая кластеризация, 20 текстов Донцовой"}
+show_stylo_fig("output/stylo/dontsova_20/delta_dendrogram_20.png", dpi = 110)
+```
+---
+
+**Таблицы расстояний:** `output/stylo/all_40/distance_table_40.csv`, `output/stylo/dontsova_20/distance_table_20.csv`.
+
