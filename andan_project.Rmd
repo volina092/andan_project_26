@@ -155,21 +155,21 @@ tokenize_corpus <- function(
 tokenize_corpus()
 ```
 
-## Проверка (после запуска)
+<!-- ## Проверка (после запуска) -->
 
-```{r check-tokens}
-# map_dbl(meta$folder_path_tokens, ~ length(str_split(read_lines(.x), " ")[[1]]))
+<!-- ```{r check-tokens} -->
+<!-- # map_dbl(meta$folder_path_tokens, ~ length(str_split(read_lines(.x), " ")[[1]])) -->
 
-meta %>%
-  mutate(
-    "количество токенов" = map_dbl(folder_path_tokens, ~ {
-      txt <- read_lines(.x, locale = locale(encoding = "UTF-8"))
-      length(str_split(txt, "\\s+")[[1]])
-    })
-  ) %>%
-  select(автор, название, роль, "количество токенов") %>%
-  print(n = 40)
-```
+<!-- meta %>% -->
+<!--   mutate( -->
+<!--     "количество токенов" = map_dbl(folder_path_tokens, ~ { -->
+<!--       txt <- read_lines(.x, locale = locale(encoding = "UTF-8")) -->
+<!--       length(str_split(txt, "\\s+")[[1]]) -->
+<!--     }) -->
+<!--   ) %>% -->
+<!--   select(автор, название, роль, "количество токенов") %>% -->
+<!--   print(n = 40) -->
+<!-- ``` -->
 
 ## Лемматизация
 
@@ -177,7 +177,7 @@ meta %>%
 
 Источник: **`books_clean/`** (как при токенизации). Результат: **`books_lemmas/`**.
 
-Пакет **udpipe** (модель `russian`).
+Пакет **udpipe** (модель `russian-syntagrus`, UD 2.5 — обучена на художественных текстах).
 
 ```{r packages-lemmas}
 library(udpipe)
@@ -200,9 +200,10 @@ recompute_lemmas <- FALSE
 ```{r udpipe-model}
 # модель загружается один раз за сессию
 if (!exists("udpipe_ru", envir = .GlobalEnv)) {
-  model_info <- udpipe_download_model(language = "russian")
+  model_info <- udpipe_download_model(language = "russian-syntagrus")
   udpipe_ru <- udpipe_load_model(model_info$file_model)
 }
+model_info
 ```
 
 ```{r lemmatize-functions}
@@ -237,7 +238,7 @@ lemmatize_for_lexical <- function(input_file, output_file, model = udpipe_ru) {
 ```
 
 ```{r lemmatize-one-test, eval=FALSE}
-# проверка на одном файле
+# # проверка на одном файле
 # lemmatize_for_lexical(
 #   meta$folder_path_clean_texts[1],
 #   meta$folder_path_lemmas[1]
@@ -880,7 +881,7 @@ tokenize_corpus(
 recompute_lemmas_b <- FALSE
 
 if (!exists("udpipe_ru", envir = .GlobalEnv)) {
-  model_info <- udpipe_download_model(language = "russian")
+  model_info <- udpipe_download_model(language = "russian-syntagrus")
   udpipe_ru <- udpipe_load_model(model_info$file_model)
 }
 
