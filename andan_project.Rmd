@@ -40,9 +40,13 @@ knitr::opts_chunk$set(
 
 Дистракторы подобраны как близкие по жанру (детектив / «дамская» проза) авторы с сопоставимым объёмом выборки. У Донцовой тексты из разных **серий** и **лет публикации**.
 
+**Обрезка текстов (часть A).** Все 40 книг в `books_clean/` — **усечённые**: с начала романа взяты целые предложения, суммарно **не более 27 000 слов** (чтобы выровнять объём для TTR, гапаксов и δ). Полные исходники сохранены в другой ветке; усечение выполняется скриптом `scripts/truncate_clean_corpus.py`, затем пересобираются `books_tokens/` и `books_lemmas/`.
+
+**Обрезка текстов (часть B).** Романы в `books_dontsova_full_clean/` усечены с начала: **целые предложения**, суммарно **≤ 37 000 лексических токенов** (`scripts/truncate_dontsova_full_clean.py`). Короткие повести и «Британец…» не удлинялись; для stylo — **289** текстов (`для_сравнения = да` в метаданных).
+
 **Структура проекта:**
 
-- **Часть A (кандидат vs дистракторы)**: фиксированный смешанный корпус (сейчас 40 текстов) — проверка, отделяется ли Донцова от дистракторов.
+- **Часть A (кандидат vs дистракторы)**: фиксированный смешанный корпус (**40 усечённых** текстов) — проверка, отделяется ли Донцова от дистракторов.
 - **Часть B (только Донцова)**: внутриавторский анализ расширенного корпуса из `books_dontsova_full_corpora/` (**299** книг, 6 серий); метаданные — `corpus_metadata_dontsova_full.csv`. Имена обработанных файлов: **`КОД_Название.txt`** (ВТ, ДВ, ЕР, ИП, СК, ТС); годы — с [FantLab](https://fantlab.ru/autor14039) (`scripts/fantlab_years.py`). Имена файлов в пайплайне: **`ВТ_Черт из табакерки.txt`**, **`ДВ_Дама с коготками.txt`**, **`ИП_Букет прекрасных дам.txt`** и т.д. (префикс серии: ВТ, ДВ, ЕР, ИП, СК, ТС). Годы — с [FantLab](https://fantlab.ru/autor14039).
 
 
@@ -54,7 +58,11 @@ knitr::opts_chunk$set(
 
 Исходник для обоих шагов: **`books_clean/`**.
 
-**Равная длина (часть A):** перед токенизацией можно усечь `books_clean/` до 27 000 слов — `python scripts/truncate_clean_corpus.py` (вне Rmd), затем заново `tokenize_corpus()` и `lemmatize_corpus(skip_existing = FALSE)`.
+**Равная длина (часть A):**
+
+1. `python scripts/truncate_clean_corpus.py` — усечение `books_clean/` (по умолчанию **целые предложения**, ≤ 27 000 слов)
+2. `python scripts/rebuild_part_a_tokens.py` — пересборка `books_tokens/`
+3. В RStudio: `recompute_lemmas <- TRUE` и chunk `lemmatize-corpus` с `skip_existing = FALSE`
 
 ## Пакеты
 
@@ -193,14 +201,14 @@ meta <- meta %>%
   )
 
 # TRUE — пересчитать только отсутствующие файлы; FALSE — не трогать udpipe вообще
-recompute_lemmas <- FALSE
+recompute_lemmas <- TRUE
 ```
 
 
 ```{r udpipe-model}
 # модель загружается один раз за сессию
 if (!exists("udpipe_ru", envir = .GlobalEnv)) {
-  model_info <- udpipe_download_model(language = "russian")
+  model_info <- udpipe_download_model(language = "russian-syntagrus")
   udpipe_ru <- udpipe_load_model(model_info$file_model)
 }
 ```
@@ -278,7 +286,7 @@ lemmatize_corpus <- function(
 # только недостающие: lemmatize_corpus(skip_existing = TRUE)
 # при recompute_lemmas == FALSE — не вызывается lemmatize_corpus()
 if (isTRUE(recompute_lemmas)) {
-  lemmatize_corpus(skip_existing = TRUE)
+  lemmatize_corpus(skip_existing = FALSE)
 }
 ```
 
@@ -573,7 +581,7 @@ build_stylo_corpus <- function(metadata, token_paths_col, out_dir, max_words = N
 }
 
 path_stylo_all <- file.path(project_root, "corpus_stylo")
-path_stylo_out <- file.path(project_root, "output", "stylo")
+path_stylo_out <- file.path(project_root, "output_stylo", "stylo")
 
 dir.create(path_stylo_out, recursive = TRUE, showWarnings = FALSE)
 
@@ -783,7 +791,7 @@ list.files(out_dir, pattern = "\\.(png|pdf)$")
 
 В этой части анализируются **только** книги Донцовой из `books_dontsova_full_corpora/` (сейчас **299** текстов, 6 серий).
 
-**Метаданные:** `corpus_metadata_dontsova_full.csv` — пересобрать: `python scripts/build_dontsova_full_metadata.py` (годы подтягиваются с [FantLab](https://fantlab.ru/autor14039)).
+**Метаданные:** `corpus_metadata_dontsova_full.csv` — пересобрать: `python scripts/build_dontsova_full_metadata.py` (годы с [FantLab](https://fantlab.ru/autor14039)). Колонки `короткий_текст` и `для_сравнения`: 8 коротких повестей и «Британец…» помечены вручную в CSV; для stylo — `meta_b_compare` (**289** романов).
 
 **Имена файлов** в `books_dontsova_full_clean/`, `books_dontsova_full_tokens/`, `books_dontsova_full_lemmas/` и `corpus_stylo_dontsova_full/`:
 
@@ -799,6 +807,8 @@ list.files(out_dir, pattern = "\\.(png|pdf)$")
 Исходники в `books_dontsova_full_corpora/` не переименовываются; связь «старый файл → новое имя» хранится в колонках `путь_исходник` и `имя_файла` CSV.
 
 Пайплайн части B **независим** от части A: отдельные папки `books_dontsova_full_*`, `corpus_stylo_dontsova_full/`, результаты — `output/stylo/dontsova_full/`.
+
+**Равная длина (часть B):** `python scripts/truncate_dontsova_full_clean.py` — усечение `books_dontsova_full_clean/` (**целые предложения**, ≤ **37 000 лексических токенов**); затем пересборка `books_dontsova_full_tokens/` и лемм в Rmd.
 
 ## Пути и метаданные (часть B)
 
@@ -841,6 +851,18 @@ meta_b <- read_csv(
 
 n_b <- nrow(meta_b)
 message("Часть B: ", n_b, " текстов, ", n_distinct(meta_b$серия), " серий")
+
+if ("для_сравнения" %in% names(meta_b)) {
+  meta_b_compare <- meta_b %>% filter(для_сравнения == "да")
+  message(
+    "Для stylo (без коротких текстов и «Британца…»): ",
+    nrow(meta_b_compare), " книг"
+  )
+} else {
+  meta_b_compare <- meta_b
+  message("Колонка для_сравнения не найдена — проверьте corpus_metadata_dontsova_full.csv")
+}
+
 meta_b %>% count(серия, sort = TRUE)
 ```
 
@@ -849,6 +871,7 @@ meta_b %>% count(серия, sort = TRUE)
 ```{r clean-dontsova-full}
 source(file.path(project_root, "R", "clean_corpus.R"))
 
+# Пересборка с нуля: python scripts/clean_dontsova_full_corpus.py --force
 skip_existing_clean_b <- TRUE
 
 for (i in seq_len(nrow(meta_b))) {

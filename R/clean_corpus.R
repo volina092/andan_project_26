@@ -28,6 +28,25 @@ is_notes_marker <- function(x) {
   str_detect(str_trim(x), "^notes\\d*$")
 }
 
+is_fb2_noise <- function(x) {
+  str_detect(
+    x,
+    regex("fb2|Black Jack|создание fb2|издательского текста", ignore_case = TRUE)
+  )
+}
+
+is_dontsova_author_line <- function(x) {
+  str_detect(str_trim(x), regex("^Дарья\\s+Д[Оо][Нн]цова\\s*$", ignore_case = TRUE))
+}
+
+find_early_author_line <- function(lines, max_line = 40L) {
+  n <- min(length(lines), max_line)
+  if (n == 0L) return(NA_integer_)
+
+  hits <- which(is_dontsova_author_line(lines[seq_len(n)]))
+  if (length(hits)) hits[[1]] else NA_integer_
+}
+
 is_prose_line <- function(x) {
   x <- str_trim(x)
   if (is_blank(x)) return(FALSE)
@@ -79,6 +98,43 @@ adjust_start_for_chapter <- function(lines, prose_idx) {
   prose_idx
 }
 
+# После аннотации/оглавления — первая проза или текст после «Глава 1».
+# after_author = TRUE: не брать эпиграф/слоган до единственной «Глава 1».
+find_prose_start_from <- function(lines, from_idx, after_author = FALSE) {
+  n <- length(lines)
+  i <- max(1L, from_idx)
+
+  while (i <= n) {
+    x <- str_trim(lines[[i]])
+    if (is_blank(x) || is_fb2_noise(x) || is_page_number_line(x)) {
+      i <- i + 1L
+      next
+    }
+    if (is_chapter_heading_line(x)) {
+      if (count_chapter_headings_back(lines, i) == 1L) {
+        j <- i + 1L
+        while (j <= n) {
+          if (is_prose_line(lines[[j]])) {
+            return(adjust_start_for_chapter(lines, j))
+          }
+          j <- j + 1L
+        }
+      } else {
+        while (i <= n && is_chapter_heading_line(str_trim(lines[[i]]))) {
+          i <- i + 1L
+        }
+        next
+      }
+    }
+    if (is_prose_line(lines[[i]]) && !after_author) {
+      return(adjust_start_for_chapter(lines, i))
+    }
+    i <- i + 1L
+  }
+
+  max(1L, from_idx)
+}
+
 find_body_start <- function(lines) {
   n <- length(lines)
   if (n == 0) return(1L)
@@ -87,15 +143,15 @@ find_body_start <- function(lines) {
   if (str_trim(lines[[1]]) == "Annotation") {
     while (i <= n && str_trim(lines[[i]]) != "* * *") i <- i + 1L
     i <- i + 1L
+    return(find_prose_start_from(lines, i))
   }
 
-  while (i <= n) {
-    if (is_prose_line(lines[[i]])) {
-      return(adjust_start_for_chapter(lines, i))
-    }
-    i <- i + 1L
+  author_idx <- find_early_author_line(lines)
+  if (!is.na(author_idx)) {
+    return(find_prose_start_from(lines, author_idx + 1L, after_author = TRUE))
   }
-  1L
+
+  find_prose_start_from(lines, 1L)
 }
 
 find_body_end <- function(lines, start) {
@@ -154,7 +210,8 @@ drop_noise_lines <- function(lines) {
   lines[
     !is_publisher_noise(lines) &
       !is_notes_marker(lines) &
-      !is_page_number_line(lines)
+      !is_page_number_line(lines) &
+      !is_fb2_noise(lines)
   ]
 }
 

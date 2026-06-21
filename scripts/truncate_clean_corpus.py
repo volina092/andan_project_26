@@ -7,7 +7,7 @@
 
 Пример:
   python scripts/truncate_clean_corpus.py
-  python scripts/truncate_clean_corpus.py --max-words 27000 --boundary word
+  python scripts/truncate_clean_corpus.py --max-words 27000 --boundary sentence
   python scripts/truncate_clean_corpus.py --dry-run
 """
 
@@ -108,8 +108,8 @@ def main() -> None:
     parser.add_argument(
         "--boundary",
         choices=("word", "sentence"),
-        default="word",
-        help="word — ровно max слов; sentence — целые предложения, сумма ≤ max",
+        default="sentence",
+        help="sentence — целые предложения, сумма ≤ max (по умолчанию); word — ровно max слов",
     )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -131,8 +131,11 @@ def main() -> None:
         before = word_count_lines(lines)
 
         if args.dry_run:
-            after = min(before, args.max_words) if args.boundary == "word" else before
-            if args.boundary == "sentence" and before > args.max_words:
+            if before <= args.max_words:
+                after = before
+            elif args.boundary == "word":
+                after = args.max_words
+            else:
                 after = word_count_lines(
                     truncate_text_sentence(path.read_text(encoding="utf-8"), args.max_words).splitlines()
                 )
@@ -162,7 +165,9 @@ def main() -> None:
     )
 
     if not args.dry_run:
-        print("\nДальше в R: tokenize_corpus(); lemmatize_corpus(skip_existing = FALSE)")
+        print("\nДальше:")
+        print("  python scripts/rebuild_part_a_tokens.py")
+        print("  RStudio: recompute_lemmas <- TRUE; lemmatize_corpus(skip_existing = FALSE)")
 
 
 if __name__ == "__main__":
