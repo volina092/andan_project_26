@@ -19,8 +19,6 @@ python_syntax part/cache_conllu_udpipe/
 python_syntax part/dontsova_full_cache_conllu_udpipe/
 python_syntax part/.ipynb_checkpoints/
 
-# Временно: тетрадки syntaxcomp_books (раскомментировать блок, когда будете публиковать)
-**/syntaxcomp_books*.ipynb
 
 # Большие/воспроизводимые артефакты анализа
 output/

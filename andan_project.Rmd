@@ -16,7 +16,7 @@ knitr::opts_chunk$set(
   echo = TRUE,
   message = TRUE,
   warning = FALSE,
-  eval = FALSE
+  eval = TRUE
 )
 ```
 
@@ -94,7 +94,7 @@ knitr::opts_chunk$set(
 
 ## Пакеты
 
-```{r packages-lexical}
+```{r packages-lexical, eval=TRUE}
 library(tidyverse)
 library(readr)
 library(stringr)
@@ -127,7 +127,7 @@ meta <- read_csv(
   )
 ```
 
-## Функция
+## Функция предобработки
 
 Нормализация: нижний регистр, всё, кроме русских/латинских букв и пробелов, заменяется пробелом; лишние пробелы удалены. На выходе — `.txt`.
 
@@ -163,7 +163,7 @@ clean_for_lexical <- function(input_file, output_file) {
 # )
 ```
 
-## Функция: весь корпус
+## Функция предобработки: весь корпус
 
 ```{r tokenize-corpus}
 tokenize_corpus <- function(
@@ -196,15 +196,15 @@ tokenize_corpus()
 ```{r check-tokens}
 # map_dbl(meta$folder_path_tokens, ~ length(str_split(read_lines(.x), " ")[[1]]))
 
-meta %>%
-  mutate(
-    "количество токенов" = map_dbl(folder_path_tokens, ~ {
-      txt <- read_lines(.x, locale = locale(encoding = "UTF-8"))
-      length(str_split(txt, "\\s+")[[1]])
-    })
-  ) %>%
-  select(автор, название, роль, "количество токенов") %>%
-  print(n = 40)
+# meta %>%
+#   mutate(
+#     "количество токенов" = map_dbl(folder_path_tokens, ~ {
+#       txt <- read_lines(.x, locale = locale(encoding = "UTF-8"))
+#       length(str_split(txt, "\\s+")[[1]])
+#     })
+#   ) %>%
+#   select(автор, название, роль, "количество токенов") %>%
+#   print(n = 40)
 ```
 
 ## Лемматизация
@@ -213,7 +213,7 @@ meta %>%
 
 Источник: **`books_clean/`** (как при токенизации). Результат: **`books_lemmas/`**.
 
-Пакет **udpipe** (модель `russian`).
+Пакет **udpipe** (модель `russian-syntagrus`).
 
 ```{r packages-lemmas}
 library(udpipe)
@@ -229,7 +229,7 @@ meta <- meta %>%
   )
 
 # TRUE — пересчитать только отсутствующие файлы; FALSE — не трогать udpipe вообще
-recompute_lemmas <- TRUE
+recompute_lemmas <- FALSE
 ```
 
 
@@ -336,21 +336,21 @@ if (isTRUE(recompute_lemmas)) {
 ## Проверка лемм (после запуска)
 
 ```{r check-lemmas}
-meta %>%
-  mutate(
-    "количество лемм" = map_dbl(folder_path_lemmas, ~ {
-      if (!file.exists(.x)) return(NA_real_)
-      txt <- read_lines(.x, locale = locale(encoding = "UTF-8"))
-      length(str_split(txt, "\\s+")[[1]])
-    })
-  ) %>%
-  select(автор, название, роль, "количество лемм") %>%
-  print(n = 40)
+# meta %>%
+#   mutate(
+#     "количество лемм" = map_dbl(folder_path_lemmas, ~ {
+#       if (!file.exists(.x)) return(NA_real_)
+#       txt <- read_lines(.x, locale = locale(encoding = "UTF-8"))
+#       length(str_split(txt, "\\s+")[[1]])
+#     })
+#   ) %>%
+#   select(автор, название, роль, "количество лемм") %>%
+#   print(n = 40)
 ```
 
 ---
 
-# Часть A. Сравнение кандидата и дистракторов (40 текстов)
+# 2. Часть A. Сравнение кандидата и дистракторов (40 текстов)
 
 В этой части проверяется, отделяются ли тексты Донцовой от близких по жанру авторов (дистракторов) по лексическим показателям, синтаксическим показателям и δ Бёрроуза.
 
@@ -366,7 +366,7 @@ $$\text{TTR} = \frac{\text{types}}{\text{tokens}}$$
 
 ## TTR по книгам
 
-```{r ttr-functions}
+```{r ttr-functions, eval=TRUE}
 read_tokens <- function(path) {
   read_lines(path, locale = locale(encoding = "UTF-8"), progress = FALSE) %>%
     str_split("\\s+") %>%
@@ -384,15 +384,15 @@ compute_ttr <- function(path) {
 }
 ```
 
-```{r ttr-by-book}
+```{r ttr-by-book, eval=TRUE}
 ttr_books <- meta %>%
   mutate(lexical = map(folder_path_lemmas, compute_ttr)) %>%
   unnest(lexical) %>%
   select(автор, название, роль, серия, год, tokens, types, ttr)
 
-ttr_books %>%
-  arrange(роль, автор, год) %>%
-  print(n = 40)
+# ttr_books %>%
+#   arrange(роль, автор, год) %>%
+#   print(n = 40)
 ```
 
 ```{r ttr-summary}
@@ -408,7 +408,7 @@ ttr_books %>%
   )
 ```
 
-## Визуализация
+### Визуализация
 
 ```{r ttr-plot-role, fig.width = 8, fig.height = 5}
 ggplot(ttr_books, aes(x = роль, y = ttr, fill = роль)) +
@@ -446,7 +446,7 @@ ggplot(ttr_books, aes(x = reorder(автор, ttr, median), y = ttr, colour = р
 - `hapax_per_type` = hapax / types — доля редких лемм среди словаря;
 - `hapax_per_token` = hapax / tokens — доля гапаксов среди всех лемм.
 
-```{r hapax-functions}
+```{r hapax-functions, eval=TRUE}
 compute_hapax <- function(path) {
   words <- read_tokens(path)
   freq <- table(words)
@@ -463,7 +463,7 @@ compute_hapax <- function(path) {
 }
 ```
 
-```{r hapax-by-book}
+```{r hapax-by-book, eval=TRUE}
 hapax_books <- meta %>%
   mutate(hapax_stats = map(folder_path_lemmas, compute_hapax)) %>%
   unnest(hapax_stats) %>%
@@ -473,9 +473,9 @@ hapax_books <- meta %>%
   ) %>%
   select(автор, название, роль, серия, год, tokens, types, ttr, hapax, hapax_per_type, hapax_per_token)
 
-hapax_books %>%
-  arrange(роль, автор, год) %>%
-  print(n = 40)
+# hapax_books %>%
+#   arrange(роль, автор, год) %>%
+#   print(n = 40)
 ```
 
 ```{r hapax-summary}
@@ -490,13 +490,14 @@ hapax_books %>%
   )
 ```
 
+### Визуализация
 
 ```{r hapax-plot-role, fig.width = 8, fig.height = 5}
 ggplot(hapax_books, aes(x = роль, y = hapax_per_type, fill = роль)) +
   geom_boxplot(alpha = 0.5, outlier.shape = NA) +
   geom_jitter(width = 0.15, size = 2, alpha = 0.8) +
   labs(
-    title = "Доля гапаксов среди типов (по роли)",
+    title = "Доля гапаксов (в словаре)",
     x = NULL,
     y = "hapax / types"
   ) +
@@ -509,13 +510,87 @@ ggplot(hapax_books, aes(x = reorder(автор, hapax_per_type, median), y = hap
   geom_boxplot(alpha = 0.4, outlier.shape = NA) +
   geom_jitter(width = 0.15, size = 1.8, alpha = 0.85) +
   labs(
-    title = "Доля гапаксов среди типов (по автору)",
+    title = "Доля гапаксов (в словаре) по автору",
     x = NULL,
     y = "hapax / types",
     colour = "Роль"
   ) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 25, hjust = 1))
+```
+
+## Статистическая проверка (лексический блок, часть A)
+
+Сводим лексический профиль к трём метрикам (`ttr`, `hapax_per_type`, `hapax_per_token`) и тестируем различимость **кандидат vs дистракторы**:
+
+- t-test по **PC1** (агрегатная ось);
+- PERMANOVA по полной 3D-матрице метрик.
+
+PCA здесь не является проверкой гипотезы: он сводит три лексические метрики к первой главной компоненте. Для t-test: H₀A — среднее значение PC1 у кандидата и дистракторов не различается; H₁A — средние различаются. Для PERMANOVA: H₀A — лексический профиль не связан с ролью/автором; H₁A — роль/автор объясняет часть вариации лексического профиля. При `p < 0.05` H₀A отвергаем.
+
+```{r lexical-tests-a, eval=TRUE}
+lex_a <- hapax_books %>%
+  select(автор, роль, год, название, ttr, hapax_per_type, hapax_per_token) %>%
+  drop_na()
+
+X_lex <- lex_a %>%
+  select(ttr, hapax_per_type, hapax_per_token) %>%
+  as.matrix() %>%
+  scale()
+
+X_lex[!is.finite(X_lex)] <- 0
+
+pca_lex <- prcomp(X_lex, center = FALSE, scale. = FALSE)
+pc1_lex <- pca_lex$x[, 1]
+
+cohen_d <- function(x, y) {
+  x <- x[is.finite(x)]; y <- y[is.finite(y)]
+  nx <- length(x); ny <- length(y)
+  if (nx < 2 || ny < 2) return(NA_real_)
+  sp <- sqrt(((nx - 1) * var(x) + (ny - 1) * var(y)) / (nx + ny - 2))
+  if (!is.finite(sp) || sp == 0) return(NA_real_)
+  (mean(x) - mean(y)) / sp
+}
+
+tt_lex_pc1 <- t.test(pc1_lex ~ lex_a$роль)
+
+out_lex <- tibble(
+  block = "lexical",
+  test = "t-test (PC1)",
+  stat = unname(tt_lex_pc1$statistic),
+  df = unname(tt_lex_pc1$parameter),
+  p_value = tt_lex_pc1$p.value,
+  effect_d = cohen_d(pc1_lex[lex_a$роль == "кандидат"], pc1_lex[lex_a$роль == "дистрактор"])
+)
+
+if (requireNamespace("vegan", quietly = TRUE)) {
+  perm_role <- vegan::adonis2(dist(X_lex) ~ lex_a$роль, permutations = 999)
+  perm_author <- vegan::adonis2(dist(X_lex) ~ lex_a$автор, permutations = 999)
+  out_lex_perm <- tibble(
+    block = "lexical",
+    test = c("PERMANOVA (роль)", "PERMANOVA (автор)"),
+    stat = c(unname(perm_role$F[1]), unname(perm_author$F[1])),
+    df = c(unname(perm_role$Df[1]), unname(perm_author$Df[1])),
+    p_value = c(unname(perm_role$`Pr(>F)`[1]), unname(perm_author$`Pr(>F)`[1])),
+    effect_d = c(unname(perm_role$R2[1]), unname(perm_author$R2[1]))
+  )
+  bind_rows(out_lex, out_lex_perm)
+} else {
+  out_lex
+}
+```
+
+```{txt a-lex-comment}
+
+t-test по PC1: p < 0.001, поэтому H₀A отвергаем. Среднее значение лексической PC1 у кандидата и дистракторов статистически значимо различается.
+
+# PC1 = общий показатель лексического разнообразия текста (первая главная компонента).
+
+PERMANOVA по роли: p = 0.001, поэтому H₀A отвергаем. Лексический профиль статистически значимо связан с ролью текста (кандидат / дистрактор).
+
+PERMANOVA по автору: p = 0.001, поэтому H₀A отвергаем. Лексический профиль статистически значимо связан с автором.
+
+Итог: по лексическим метрикам H₀A отвергается: тексты Донцовой лексически отличаются от дистракторов.
 ```
 
 ## Интерпретация лексических метрик
@@ -560,9 +635,7 @@ if (!exists("ttr_books") || !exists("hapax_books")) {
   cat("#### Гапаксы (hapax / types)\n\n")
   cat("**Между ролями.** Средняя доля гапаксов у кандидата (", fmt(cand_hpt), ") ", sep = "")
   cat("**практически совпадает** с дистракторами (", fmt(dist_hpt), "). ", sep = "")
-  cat("Медианы по авторам различаются незначительно; Донцова занимает промежуточное положение в корпусе.\n\n")
-  cat("В рамках части A показатель hapax/types не добавляет сильного контраста между кандидатом и дистракторами; ")
-  cat("основная интерпретация переносится на стилиометрию (δ) и на внутриавторский анализ в части B.\n")
+  cat("Медианы по авторам различаются незначительно; Донцова занимает промежуточное положение в корпусе.")
 }
 ```
 
@@ -604,8 +677,8 @@ syntax_a <- syntax_raw %>%
   semi_join(meta %>% select(папка, имя_файла), by = c("папка", "имя_файла")) %>%
   left_join(meta %>% select(папка, имя_файла, роль), by = c("папка", "имя_файла"))
 
-syntax_a %>%
-  count(автор, роль, sort = TRUE)
+# syntax_a %>%
+#   count(автор, роль, sort = TRUE)
 ```
 
 ### Перечень синтаксических метрик и их смысл (часть A)
@@ -711,11 +784,13 @@ if (!exists("within_d_vals") || !exists("between_d")) {
   fmt <- function(x) format(round(x, 3), nsmall = 3, decimal.mark = ",")
   cat("**Вывод по дистанциям.** В среднем книги Донцовой **ближе друг к другу** по синтаксическим признакам (", fmt(w), "), чем к книгам других авторов (", fmt(b), "). ", sep = "")
   cat("Отношение средних дистанций (межавторская/внутриавторская) ≈ **", fmt(ratio), "**. ", sep = "")
-  cat("Это согласуется с H₁A: синтаксический профиль кандидата устойчив и отличим от дистракторов.\n")
+  cat("Согласуется с H₁A: синтаксический профиль кандидата устойчив и отличим от дистракторов.\n")
 }
 ```
 
 ### Визуализация: PCA по синтаксическим метрикам (40 текстов)
+
+**Формально.** PCA по синтаксическим метрикам не проверяет H₀A напрямую, а задаёт оси максимальной вариативности. Если тексты кандидата и дистракторов занимают разные области в пространстве PC1–PC2, это визуально согласуется с H₁A и требует дальнейшей проверки t-test/PERMANOVA.
 
 ```{r syntax-pca, eval=TRUE, fig.width = 11, fig.height = 8}
 pca <- prcomp(X, center = FALSE, scale. = FALSE)
@@ -734,6 +809,69 @@ ggplot(pca_xy, aes(x = PC1, y = PC2, colour = автор, shape = роль)) +
   theme(axis.text.x = element_text(size = 10), axis.text.y = element_text(size = 10))
 ```
 
+### Статистическая проверка (синтаксический блок, часть A)
+
+Для «совокупности синтаксических метрик» используем:
+
+- t-test по **PC1** (агрегатная ось);
+- PERMANOVA по евклидовым дистанциям в пространстве z-score.
+
+ Для t-test: H₀A — средний PC1 по синтаксическим метрикам одинаков у кандидата и дистракторов; H₁A — средние PC1 различаются.
+ 
+ Для PERMANOVA: H₀A — синтаксические дистанции не связаны с ролью/автором; H₁A — роль/автор объясняет часть синтаксической вариации. При `p < 0.05` H₀A отвергаем.
+
+```{r syntax-tests-a, eval=TRUE}
+pc1_syn <- pca$x[, 1]
+
+cohen_d <- function(x, y) {
+  x <- x[is.finite(x)]; y <- y[is.finite(y)]
+  nx <- length(x); ny <- length(y)
+  if (nx < 2 || ny < 2) return(NA_real_)
+  sp <- sqrt(((nx - 1) * var(x) + (ny - 1) * var(y)) / (nx + ny - 2))
+  if (!is.finite(sp) || sp == 0) return(NA_real_)
+  (mean(x) - mean(y)) / sp
+}
+
+tt_syn_pc1 <- t.test(pc1_syn ~ syntax_a$роль)
+
+out_syn <- tibble(
+  block = "syntax",
+  test = "t-test (PC1)",
+  stat = unname(tt_syn_pc1$statistic),
+  df = unname(tt_syn_pc1$parameter),
+  p_value = tt_syn_pc1$p.value,
+  effect_d = cohen_d(pc1_syn[syntax_a$роль == "кандидат"], pc1_syn[syntax_a$роль == "дистрактор"])
+)
+
+if (requireNamespace("vegan", quietly = TRUE)) {
+  perm_role <- vegan::adonis2(dist(X) ~ syntax_a$роль, permutations = 999)
+  perm_author <- vegan::adonis2(dist(X) ~ syntax_a$автор, permutations = 999)
+  out_syn_perm <- tibble(
+    block = "syntax",
+    test = c("PERMANOVA (роль)", "PERMANOVA (автор)"),
+    stat = c(unname(perm_role$F[1]), unname(perm_author$F[1])),
+    df = c(unname(perm_role$Df[1]), unname(perm_author$Df[1])),
+    p_value = c(unname(perm_role$`Pr(>F)`[1]), unname(perm_author$`Pr(>F)`[1])),
+    effect_d = c(unname(perm_role$R2[1]), unname(perm_author$R2[1]))
+  )
+  bind_rows(out_syn, out_syn_perm)
+} else {
+  out_syn
+}
+```
+
+```{txt a-synt-comment}
+
+t-test по PC1: p = 0.0087, поэтому H₀A отвергаем. Среднее значение синтаксической PC1 у кандидата и дистракторов статистически значимо различается.
+
+PERMANOVA по роли: p = 0.001, поэтому H₀A отвергаем. Синтаксический профиль статистически значимо связан с ролью текста (кандидат / дистрактор).
+
+PERMANOVA по автору: p = 0.001, поэтому H₀A отвергаем. Синтаксический профиль статистически значимо связан с автором.
+
+Итог: по синтаксическим метрикам H₀A отвергается: тексты Донцовой синтаксически отличаются от текстов авторов-дистракторов.
+
+```
+
 ### Визуализация: MDS по синтаксическим метрикам (40 текстов)
 
 MDS на основе матрицы расстояний. Здесь расстояния считаются как евклидовы дистанции по **z-score** для совокупности синтаксических признаков.
@@ -748,11 +886,7 @@ mds_df <- tibble(
   mutate(
     фамилия = word(автор, -1),
     подпись = str_squish(paste(фамилия, год, название))
-```
-
-
-```{r syntax-mds, eval=TRUE, fig.width = 11, fig.height = 8}
-)
+  )
 
 p_mds_syn <- ggplot(mds_df, aes(x = X1, y = X2, colour = автор, shape = роль)) +
   geom_point(size = 3, alpha = 0.85) +
@@ -774,65 +908,6 @@ if (requireNamespace("ggrepel", quietly = TRUE)) {
 p_mds_syn
 ```
 
-### Визуализация: heatmap синтаксических дистанций (40 текстов)
-
-Чем светлее клетка, тем **ближе** пара текстов по синтаксическому профилю.
-
-```{r syntax-heatmap, eval=TRUE, fig.width = 12, fig.height = 10}
-dist_mat <- as.matrix(dist(X, method = "euclidean"))
-
-# упорядочивание по автору и году
-# нужно чтобы блоки «автор × автор» были виднее
-ord <- syntax_a %>%
-  mutate(
-    фамилия = word(автор, -1),
-    подпись = str_squish(paste(фамилия, год, название))
-  ) %>%
-  arrange(автор, год, название) %>%
-  mutate(row_id = row_number())
-
-dist_mat <- dist_mat[ord$row_id, ord$row_id, drop = FALSE]
-rownames(dist_mat) <- colnames(dist_mat) <- ord$подпись
-
-dist_long <- dist_mat %>%
-  as.data.frame(check.names = FALSE) %>%
-  rownames_to_column("text_1") %>%
-  pivot_longer(-text_1, names_to = "text_2", values_to = "dist")
-
-ggplot(dist_long, aes(x = text_1, y = text_2, fill = dist)) +
-  geom_tile() +
-  scale_fill_gradient(low = "white", high = "steelblue") +
-  labs(
-    title = "Матрица синтаксических дистанций (z-score признаки, 40 текстов)",
-    subtitle = "Порядок: автор → год → название; светлее = ближе",
-    x = NULL, y = NULL, fill = "dist"
-  ) +
-  theme_minimal() +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 6),
-    axis.text.y = element_text(size = 6)
-  )
-```
-
-### Визуализация: кластеризация по синтаксическим метрикам
-
-```{r syntax-dendro, eval=TRUE, fig.width = 11, fig.height = 9}
-hc <- hclust(dist(X), method = "ward.D2")
-labels <- syntax_a %>%
-  mutate(фамилия = word(автор, -1)) %>%
-  transmute(lbl = str_squish(paste(фамилия, год, название))) %>%
-  pull(lbl)
-
-hc$labels <- labels
-
-plot(
-  as.dendrogram(hc),
-  horiz = TRUE,
-  cex = 0.55,
-  main = "Кластеризация по синтаксическим метрикам (ward.D2, 40 текстов)",
-  xlab = "Евклидово расстояние (по z-score признакам)"
-)
-```
 
 ### Характерные для Донцовой синтаксические признаки
 
@@ -1216,11 +1291,75 @@ save_dendro(
 )
 
 write.csv(delta_mat, file.path(out_dir, "distance_table_40.csv"), fileEncoding = "UTF-8")
-
-list.files(out_dir, pattern = "\\.(png|pdf)$")
 ```
 
-# Часть B. Внутриавторский анализ книг Донцовой (расширенный корпус)
+## Статистическая проверка (δ Бёрроуза, часть A)
+
+Для δ используем:
+
+- t-test (paired) на уровне 20 текстов Донцовой: для каждой книги сравниваем среднюю δ до книг Донцовой vs среднюю δ до дистракторов;
+- PERMANOVA по матрице δ (роль и автор).
+
+Для парного t-test: H₀A — средняя δ от книги Донцовой до других книг Донцовой не меньше средней δ до дистракторов; H₁A — внутриавторская δ меньше межавторской
+Для PERMANOVA: H₀A — матрица δ не связана с ролью/автором; H₁A — роль/автор объясняет часть расстояний δ. При `p < 0.05` H₀A отвергаем.
+
+```{r a-delta-stats}
+paired_d <- function(x, y) {
+  d <- y - x
+  d <- d[is.finite(d)]
+  if (length(d) < 2 || sd(d) == 0) return(NA_real_)
+  mean(d) / sd(d)
+}
+
+idx_d <- which(meta$автор == "Дарья Донцова")
+idx_o <- which(meta$автор != "Дарья Донцова")
+
+within_mean <- vapply(idx_d, function(i) mean(delta_mat[i, setdiff(idx_d, i)]), numeric(1))
+between_mean <- vapply(idx_d, function(i) mean(delta_mat[i, idx_o]), numeric(1))
+
+tt_delta <- t.test(within_mean, between_mean, paired = TRUE, alternative = "less")
+
+delta_tests <- tibble(
+  block = "delta",
+  test = "t-test paired (within < between)",
+  stat = unname(tt_delta$statistic),
+  df = unname(tt_delta$parameter),
+  p_value = tt_delta$p.value,
+  effect_d = paired_d(within_mean, between_mean),
+  mean_within = mean(within_mean),
+  mean_between = mean(between_mean)
+)
+
+if (requireNamespace("vegan", quietly = TRUE)) {
+  perm_role <- vegan::adonis2(as.dist(delta_mat) ~ meta$роль, permutations = 999)
+  perm_author <- vegan::adonis2(as.dist(delta_mat) ~ meta$автор, permutations = 999)
+  delta_perm <- tibble(
+    block = "delta",
+    test = c("PERMANOVA (роль)", "PERMANOVA (автор)"),
+    stat = c(unname(perm_role$F[1]), unname(perm_author$F[1])),
+    df = c(unname(perm_role$Df[1]), unname(perm_author$Df[1])),
+    p_value = c(unname(perm_role$`Pr(>F)`[1]), unname(perm_author$`Pr(>F)`[1])),
+    effect_d = c(unname(perm_role$R2[1]), unname(perm_author$R2[1]))
+  )
+  bind_rows(delta_tests, delta_perm)
+} else {
+  delta_tests
+}
+
+# list.files(out_dir, pattern = "\\.(png|pdf)$")
+```
+
+```{txt a-delta-comment}
+paired t-test (within < between): p < 0.001, поэтому H₀A отвергаем. Средняя δ внутри корпуса Донцовой (0.800) статистически значимо меньше, чем средняя δ между Донцовой и дистракторами (1.254).
+
+PERMANOVA по роли: p = 0.001, поэтому H₀A отвергаем. Матрица δ статистически значимо связана с ролью текста (кандидат / дистрактор).
+
+PERMANOVA по автору: p = 0.001, поэтому H₀A отвергаем. Матрица δ статистически значимо связана с автором.
+
+Итог: по δ Бёрроуза H₀A отвергается.
+```
+
+# 3. Часть B. Внутриавторский анализ книг Донцовой (расширенный корпус)
 
 В этой части анализируются **только** книги Донцовой из отобранного корпуса (сейчас **283** текста, 6 серий).
 
@@ -1530,6 +1669,207 @@ if (!exists("ttr_dontsova") || !exists("hapax_dontsova")) {
   cat("**Гапаксы.** Показатель hapax/types дополняет TTR: устойчивые различия между сериями или периодами могут указывать на смену лексического регистра; ",
       "отсутствие структуры согласуется с H₀B об однородном профиле.\n", sep = "")
 }
+```
+
+## Синтаксические метрики (только Донцова, полный корпус)
+
+Синтаксические метрики считаются тем же пайплайном `UDPipe + syntaxcomp`, что и в части A. Здесь задача другая: не отделить Донцову от дистракторов, а проверить, проявляется ли внутри большого корпуса структура **по сериям** или **по периодам издания**.
+
+```{r syntax-dontsova-full-load, eval=TRUE}
+path_syntax_metrics_b <- file.path(
+  project_root,
+  "python_syntax part",
+  "dontsova_full_output",
+  "syntaxcomp_metrics.csv"
+)
+
+syntax_b_raw <- read_csv(
+  path_syntax_metrics_b,
+  locale = locale(encoding = "UTF-8"),
+  show_col_types = FALSE
+)
+
+syntax_b <- meta_b %>%
+  select(
+    id, название_meta = название, серия, series_code, series_slug,
+    год, имя_файла
+  ) %>%
+  left_join(
+    syntax_b_raw %>%
+      select(-автор, -название, -серия, -год),
+    by = c("series_slug" = "папка", "имя_файла" = "имя_файла")
+  ) %>%
+  mutate(
+    название = название_meta,
+    период = year_period_factor(год)
+  )
+
+missing_syntax_b <- is.na(syntax_b$conllu_cache)
+if (any(missing_syntax_b)) {
+  stop("Нет синтаксических метрик для ", sum(missing_syntax_b), " книг")
+}
+
+syntax_b %>%
+  count(серия, период, sort = TRUE) %>%
+  print(n = 20)
+```
+
+```{r syntax-dontsova-full-features, eval=TRUE}
+#  используем нормированные/средние метрики.
+count_like_b <- c(
+  "год",
+  "Number of Sentences", "Number of Words", "Number of Clauses",
+  "Number of Combined Clauses", "Number of Coordinate Clauses", "Number of Subordinate Clauses",
+  "__compute_seconds__"
+)
+
+X_syn_b_df <- syntax_b %>%
+  select(where(is.numeric)) %>%
+  select(-any_of(count_like_b))
+
+sd_vec_b <- map_dbl(X_syn_b_df, ~ sd(.x, na.rm = TRUE))
+keep_b <- is.finite(sd_vec_b) & sd_vec_b > 0
+X_syn_b_df <- X_syn_b_df %>% select(which(keep_b))
+
+X_syn_b <- scale(as.matrix(X_syn_b_df))
+X_syn_b[!is.finite(X_syn_b)] <- 0
+
+tibble(
+  n_texts = nrow(X_syn_b),
+  n_features = ncol(X_syn_b)
+)
+```
+
+### PCA по синтаксическим метрикам
+
+<!-- Если точки не упорядочиваются по серии или периоду, это согласуется с H₁B. -->
+
+```{r syntax-dontsova-full-pca, eval=TRUE, fig.width = 11, fig.height = 8}
+pca_syn_b <- prcomp(X_syn_b, center = FALSE, scale. = FALSE)
+
+pca_syn_b_df <- as_tibble(pca_syn_b$x[, 1:2]) %>%
+  bind_cols(syntax_b %>% select(название, серия, год, период))
+
+ggplot(pca_syn_b_df, aes(x = PC1, y = PC2, colour = период)) +
+  geom_point(size = 1.8, alpha = 0.8) +
+  labs(
+    title = paste0("PCA по синтаксическим метрикам (Донцова, n = ", n_b, ")"),
+    subtitle = "Признаки стандартизованы; цвет — период издания",
+    x = "PC1", y = "PC2",
+    colour = "Период"
+  ) +
+  theme_minimal()
+```
+
+```{r syntax-dontsova-full-pca-series, eval=TRUE, fig.width = 11, fig.height = 8}
+ggplot(pca_syn_b_df, aes(x = PC1, y = PC2, colour = серия)) +
+  geom_point(size = 1.8, alpha = 0.8) +
+  labs(
+    title = paste0("PCA по синтаксическим метрикам (Донцова, n = ", n_b, ")"),
+    subtitle = "Те же координаты; цвет — серия",
+    x = "PC1", y = "PC2",
+    colour = "Серия"
+  ) +
+  theme_minimal() +
+  theme(legend.text = element_text(size = 8))
+```
+
+### MDS по синтаксическим метрикам
+
+MDS строится по евклидовым расстояниям между текстами в пространстве z-score синтаксических признаков.
+
+```{r syntax-dontsova-full-mds-period, eval=TRUE, fig.width = 11, fig.height = 8}
+dist_syn_b <- dist(X_syn_b, method = "euclidean")
+mds_syn_b <- cmdscale(dist_syn_b, k = 2)
+
+mds_syn_b_df <- tibble(
+  X1 = mds_syn_b[, 1],
+  X2 = mds_syn_b[, 2]
+) %>%
+  bind_cols(syntax_b %>% select(название, серия, год, период))
+
+ggplot(mds_syn_b_df, aes(x = X1, y = X2, colour = период)) +
+  geom_point(size = 1.8, alpha = 0.8) +
+  labs(
+    title = paste0("MDS по синтаксическим метрикам (Донцова, n = ", n_b, ")"),
+    subtitle = "Цвет — период издания",
+    x = "Dim 1", y = "Dim 2",
+    colour = "Период"
+  ) +
+  theme_minimal()
+```
+
+```{r syntax-dontsova-full-mds-series, eval=TRUE, fig.width = 11, fig.height = 8}
+ggplot(mds_syn_b_df, aes(x = X1, y = X2, colour = серия)) +
+  geom_point(size = 1.8, alpha = 0.8) +
+  labs(
+    title = paste0("MDS по синтаксическим метрикам (Донцова, n = ", n_b, ")"),
+    subtitle = "Те же координаты; цвет — серия",
+    x = "Dim 1", y = "Dim 2",
+    colour = "Серия"
+  ) +
+  theme_minimal() +
+  theme(legend.text = element_text(size = 8))
+```
+
+### Синтаксический профиль по сериям и периодам
+
+```{r syntax-dontsova-full-pc1-boxplots, eval=TRUE, fig.width = 11, fig.height = 6}
+ggplot(pca_syn_b_df, aes(x = период, y = PC1, colour = период)) +
+  geom_boxplot(alpha = 0.35, outlier.shape = NA) +
+  geom_jitter(width = 0.12, size = 1.2, alpha = 0.65) +
+  labs(
+    title = "Главная синтаксическая ось (PC1) по периодам",
+    x = NULL, y = "PC1 (syntax)",
+    colour = "Период"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1), legend.position = "none")
+```
+
+```{r syntax-dontsova-full-pc1-series, eval=TRUE, fig.width = 11, fig.height = 6}
+ggplot(pca_syn_b_df, aes(x = reorder(серия, PC1, median), y = PC1, colour = серия)) +
+  geom_boxplot(alpha = 0.35, outlier.shape = NA) +
+  geom_jitter(width = 0.12, size = 1.2, alpha = 0.65) +
+  labs(
+    title = "Главная синтаксическая ось (PC1) по сериям",
+    x = NULL, y = "PC1 (syntax)",
+    colour = "Серия"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1), legend.position = "none")
+```
+
+### PERMANOVA: серия и период
+
+H₀B — синтаксические дистанции внутри корпуса Донцовой не связаны с серией или периодом публикации. H₁B — серия или период объясняет часть синтаксической вариации. При `p < 0.05` H₀B отвергаем; больший `R²` означает более сильную связь фактора с синтаксическим профилем.
+
+```{r syntax-dontsova-full-permanova, eval=TRUE}
+if (requireNamespace("vegan", quietly = TRUE)) {
+  perm_syntax_b_series <- vegan::adonis2(dist_syn_b ~ syntax_b$серия, permutations = 999)
+  perm_syntax_b_period <- vegan::adonis2(dist_syn_b ~ syntax_b$период, permutations = 999)
+  
+  syntax_b_permanova <- tibble(
+    фактор = c("серия", "период"),
+    F = c(unname(perm_syntax_b_series$F[1]), unname(perm_syntax_b_period$F[1])),
+    R2 = c(unname(perm_syntax_b_series$R2[1]), unname(perm_syntax_b_period$R2[1])),
+    p_value = c(unname(perm_syntax_b_series$`Pr(>F)`[1]), unname(perm_syntax_b_period$`Pr(>F)`[1]))
+  )
+  
+  syntax_b_permanova
+} else {
+  tibble(
+    сообщение = "Пакет vegan не установлен: install.packages('vegan')"
+  )
+}
+```
+```{txt}
+PERMANOVA по серии: p = 0.075, поэтому H₀B не отвергаем. Синтаксические дистанции не имеют статистически значимой связи с серией на уровне p < 0.05. Доля объяснённой вариации небольшая: R² = 0.026.
+
+PERMANOVA по периоду: p = 0.001, поэтому H₀B отвергаем. Синтаксические дистанции статистически значимо связаны с периодом публикации. Доля объяснённой вариации заметная: R² = 0.315.
+
+Итог: по синтаксическим метрикам в полном корпусе Донцовой серия не даёт значимого эффекта, а период публикации даёт значимый эффект.
+
 ```
 
 ## Стилиометрия: полный корпус Донцовой
@@ -1904,11 +2244,127 @@ save(delta_dontsova, stylo_mfw_dontsova, n_b, file = file.path(out_dir, "delta_d
 list.files(out_dir, pattern = "\\.(png|pdf|csv|RData)$")
 ```
 
+# 4. Однородность корпуса: автоматическая кластеризация и silhouette
+
+
+Чтобы не задавать заранее серии или периоды, проверим, появляются ли в полном корпусе Донцовой **самостоятельные устойчивые кластеры**. Для этого используем PAM-кластеризацию (`k = 2..10`) по готовым матрицам расстояний и считаем average silhouette width.
+
+Интерпретация:
+
+- `silhouette < 0.25` — явной кластерной структуры нет / кластеры слабые;
+- `0.25–0.50` — умеренная структура;
+- `> 0.50` — хорошо разделённые кластеры.
+
+```{r install-cluster}
+# install.packages("cluster")
+```
+
+```{r dontsova-full-silhouette-functions, eval=TRUE}
+silhouette_scan <- function(d, k_values = 2:10, label = "distance") {
+  if (!requireNamespace("cluster", quietly = TRUE)) {
+    stop("Нужен пакет cluster: install.packages('cluster')")
+  }
+  
+  d <- as.dist(d)
+  
+  map_dfr(k_values, function(k) {
+    fit <- cluster::pam(d, k = k, diss = TRUE)
+    sil <- cluster::silhouette(fit$clustering, d)
+    
+    tibble(
+      block = label,
+      k = k,
+      avg_silhouette = mean(sil[, "sil_width"]),
+      min_cluster_size = min(table(fit$clustering)),
+      max_cluster_size = max(table(fit$clustering))
+    )
+  })
+}
+
+interpret_silhouette <- function(x) {
+  case_when(
+    is.na(x) ~ "нет данных",
+    x < 0.25 ~ "слабая кластерная структура",
+    x < 0.50 ~ "умеренная кластерная структура",
+    TRUE ~ "сильная кластерная структура"
+  )
+}
+```
+
+```{r dontsova-full-silhouette-delta, eval=TRUE, fig.width = 8, fig.height = 5}
+sil_delta <- silhouette_scan(delta_mat, label = "δ Бёрроуза")
+
+sil_delta %>%
+  arrange(desc(avg_silhouette)) %>%
+  mutate(интерпретация = interpret_silhouette(avg_silhouette)) %>%
+  print(n = Inf)
+
+ggplot(sil_delta, aes(x = k, y = avg_silhouette)) +
+  geom_line() +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 0.25, linetype = "dashed", colour = "grey50") +
+  labs(
+    title = "Silhouette по δ Бёрроуза (автоматическая кластеризация)",
+    subtitle = "PAM по матрице δ; метки серии/периода не используются",
+    x = "Число кластеров k",
+    y = "Average silhouette width"
+  ) +
+  theme_minimal()
+```
+
+```{r dontsova-full-silhouette-syntax, eval=TRUE, fig.width = 8, fig.height = 5}
+if (!exists("dist_syn_b")) {
+  knitr::asis_output("<p><em>Нет объекта <code>dist_syn_b</code> — выполните синтаксический раздел части B.</em></p>")
+} else {
+  sil_syntax <- silhouette_scan(dist_syn_b, label = "синтаксис")
+  
+  print(
+    sil_syntax %>%
+      arrange(desc(avg_silhouette)) %>%
+      mutate(интерпретация = interpret_silhouette(avg_silhouette)),
+    n = Inf
+  )
+  
+  ggplot(sil_syntax, aes(x = k, y = avg_silhouette)) +
+    geom_line() +
+    geom_point(size = 2) +
+    geom_hline(yintercept = 0.25, linetype = "dashed", colour = "grey50") +
+    labs(
+      title = "Silhouette по синтаксическим дистанциям (автоматическая кластеризация)",
+      subtitle = "PAM по z-score синтаксических признаков; метки серии/периода не используются",
+      x = "Число кластеров k",
+      y = "Average silhouette width"
+    ) +
+    theme_minimal()
+}
+```
+
+```{r dontsova-full-silhouette-interpretation, eval=TRUE, echo=FALSE, results='asis'}
+fmt <- function(x) format(round(x, 3), nsmall = 3, decimal.mark = ",")
+
+cat("#### Интерпретация silhouette (часть B)")
+
+if (exists("sil_delta")) {
+  best_delta <- sil_delta %>% slice_max(avg_silhouette, n = 1, with_ties = FALSE)
+  cat("По δ Бёрроуза максимум silhouette достигается при k = ", best_delta$k,
+      ": average silhouette = ", fmt(best_delta$avg_silhouette),
+      " (", interpret_silhouette(best_delta$avg_silhouette), "). ", sep = "")
+}
+
+if (exists("sil_syntax")) {
+  best_syntax <- sil_syntax %>% slice_max(avg_silhouette, n = 1, with_ties = FALSE)
+  cat("По синтаксическим дистанциям максимум silhouette достигается при k = ", best_syntax$k,
+      ": average silhouette = ", fmt(best_syntax$avg_silhouette),
+      " (", interpret_silhouette(best_syntax$avg_silhouette), "). ", sep = "")
+}
+
+```
+
 ---
 
 # 5. Итоги и визуализация результатов (части A и B)
 
-Ниже выводятся сохранённые графики стилиометрии из `output_stylo/stylo/`.
+В финальном разделе собраны основные результаты по двум исследовательским вопросам. Сначала кратко суммируются лексические и синтаксические метрики, затем выводятся сохранённые графики стилиометрии из `output_stylo/stylo/`, после чего формулируется общий вывод об авторской различимости и внутренней однородности корпуса.
 
 ```{r results-report-setup, include=FALSE, eval=TRUE}
 knitr::opts_chunk$set(fig.align = "center", out.width = "95%", echo = FALSE)
@@ -1940,9 +2396,21 @@ show_stylo_fig <- function(rel_path, dpi = 96) {
 
 #### Гапаксы (hapax / types)
 
-**Между ролями.** Средняя доля гапаксов у кандидата (0,5562) практически совпадает со среденей долей у дистракторов (0,5505); медианы также близки (0,554 vs 0,547).
+**Между ролями.** Средняя доля гапаксов у кандидата (0,5562) практически совпадает со средней долей у дистракторов (0,5505); медианы также близки (0,554 vs 0,547).
 
 **Внутри корпуса Донцовой (часть B).** Сравнение boxplot по сериям; устойчивые различия между циклами могут поддерживать H₁B.
+
+---
+
+## Синтаксические метрики и PCA/PERMANOVA
+
+**Часть A.** Синтаксический блок проверяет, отличается ли профиль кандидата от дистракторов не по словарю, а по устройству предложений: длине, вложенности, координации, подчинению, NP и другим метрикам syntaxcomp. PCA используется как способ сжать набор синтаксических признаков в главные оси; t-test по PC1 и PERMANOVA по полной матрице расстояний дают формальную проверку H₀A/H₁A.
+
+**Интерпретация.** Если PC1 значимо различается между кандидатом и дистракторами, а PERMANOVA даёт значимую связь с ролью/автором, это поддерживает H₁A: синтаксический профиль Донцовой не совпадает со средним профилем жанрово близких авторов.
+
+**Часть B.** Внутри полного корпуса Донцовой синтаксический PCA и MDS используются уже не для межавторского сравнения, а для проверки структуры по **сериям** и **периодам публикации**. PERMANOVA сравнивает, какой фактор сильнее связан с синтаксическими расстояниями: серия или время.
+
+**Интерпретация.** Если период объясняет большую долю вариации, чем серия, это поддерживает вывод о диахроническом дрейфе синтаксиса: корпус не распадается прежде всего на шесть серий, но меняется во времени.
 
 ---
 
@@ -1980,7 +2448,7 @@ show_stylo_fig("output_stylo/stylo/all_40/delta_mds_40.png")
 show_stylo_fig("output_stylo/stylo/all_40/delta_dendrogram_40.png", dpi = 110)
 ```
 
-*Комментарий.* Слияние всех 20 текстов кандидата в одну ветвь при относительно раннем объединении текстов каждого дистрактора может быть интерпретирована как авторская структура дистанций. Такая топология дерева поддерживает вывод о различимости кандидата в полном корпусе.
+*Комментарий.* Слияние всех 20 текстов кандидата в одну ветвь при относительно раннем объединении текстов каждого дистрактора может быть интерпретирована как авторская структура дистанций. Дерево поддерживает вывод о различимости кандидата в полном корпусе.
 
 ---
 
@@ -1996,7 +2464,7 @@ show_stylo_fig("output_stylo/stylo/all_40/delta_dendrogram_40.png", dpi = 110)
 show_stylo_fig("output_stylo/stylo/dontsova_full/delta_heatmap_full_283.png")
 ```
 
-*Комментарий.* На карте n×n анализируются только внутриавторские δ; тексты упорядочены по серии (подписи скрыты). Ярко выраженных «шести блоков» по сериям не наблюдается: структура скорее диффузная, что согласуется с тем, что различия в корпусе объясняются не только серией, но и временным дрейфом (см. MDS по периодам).
+*Комментарий.* Структура диффузная → связи нет.
 
 ### MDS
 
@@ -2005,7 +2473,15 @@ show_stylo_fig("output_stylo/stylo/dontsova_full/delta_heatmap_full_283.png")
 ```{r fig-mds-full, eval=TRUE, fig.cap="MDS по δ, полный корпус Донцовой"}
 show_stylo_fig("output_stylo/stylo/dontsova_full/delta_mds_full_283.png")
 ```
-*Комментарий.* В двухмерной проекции облака точек **не распадаются на 6 изолированных кластеров по сериям**: цвета заметно перемешаны. При этом форма «дуги/подковы» указывает на **градиент**, который лучше объясняется временем публикации (см. MDS по периодам и подписи годов ниже).
+
+*Комментарий.* В двухмерной проекции облака точек не распадаются на кластеры по сериям: цвета перемешаны. При этом форма дуги указывает на градиент (он лучше объясняется временем публикации, чем серией).
+
+### MDS с подписями (год)
+
+```{r fig-mds-full-year, eval=TRUE, fig.cap="MDS по δ с подписями года издания"}
+show_stylo_fig("output_stylo/stylo/dontsova_full/delta_mds_year_full_283.png", dpi = 110)
+```
+
 ### MDS (цвет — период издания)
 
 Пятилетние периоды: **1999–2004**, **2005–2009**, **2010–2014**, **2015–2019**, **2020–2025** (последний объединён: 2020–2025).
@@ -2014,15 +2490,7 @@ show_stylo_fig("output_stylo/stylo/dontsova_full/delta_mds_full_283.png")
 show_stylo_fig("output_stylo/stylo/dontsova_full/delta_mds_period_full_283.png")
 ```
 
-*Комментарий.* Видна **выраженная временная структурированность**: периоды расположены вдоль дуги почти «по порядку» (1999–2004 слева → … → 2020–2025 справа). Это типичный эффект для больших внутриавторских корпусов и означает **диахронический дрейф частотного профиля** (лексика/редактура/нормы языка/возраст автора), то есть H₁B поддерживается по оси времени.
-
-### MDS с подписями (год)
-
-```{r fig-mds-full-year, eval=TRUE, fig.cap="MDS по δ с подписями года издания"}
-show_stylo_fig("output_stylo/stylo/dontsova_full/delta_mds_year_full_283.png", dpi = 110)
-```
-
-*Комментарий.* Подписи годов подтверждают, что основная дисперсия в MDS имеет **хронологический характер**: рядом оказываются книги близких лет, а переходы между периодами выглядят как относительно непрерывная траектория.
+*Комментарий.* Видна структурированность в зависимости от периода: периоды расположены вдоль дуги почти «по порядку» (1999–2004 слева → … → 2020–2025 справа). Для частотного профиля характерен **диахронический дрейф**, поэтому H₁B поддерживается по оси времени.
 
 ### MDS с подписями (год и название)
 
@@ -2035,6 +2503,26 @@ show_stylo_fig("output_stylo/stylo/dontsova_full/delta_mds_year_title_full_283.p
 ```{r fig-dendro-full, eval=TRUE, fig.cap="Иерархическая кластеризация, полный корпус Донцовой"}
 show_stylo_fig("output_stylo/stylo/dontsova_full/delta_dendrogram_full_283.png", dpi = 110)
 ```
+
+---
+
+## Однородность корпуса и silhouette
+
+Автоматическая кластеризация PAM (`k = 2..10`) и average silhouette width используются как дополнительная проверка: появляются ли устойчивые кластеры **без заранее заданных меток** серии или периода.
+
+**Формальная логика.** Если silhouette низкий (`< 0.25`), явной кластерной структуры нет; это согласуется с H₀B об относительной однородности корпуса. Если silhouette умеренный или высокий, это поддерживает H₁B: внутри корпуса есть самостоятельные подкластеры.
+
+**Интерпретация для проекта.** Silhouette не доказывает авторство напрямую, но помогает отличить две ситуации: (1) тексты образуют несколько хорошо разделённых групп; (2) тексты скорее лежат на непрерывном градиенте. Для полного корпуса Донцовой особенно важно сопоставлять silhouette с MDS по периодам: временной градиент может быть заметен визуально даже без сильной автоматической кластеризации.
+
+---
+
+## Общий вывод
+
+**Ответ на вопрос A.** В межавторском корпусе Донцова отличается от дистракторов по нескольким слоям: лексике, синтаксису и δ Бёрроуза. Если t-test/PERMANOVA дают значимые результаты, H₀A отвергается в пользу H₁A: профиль кандидата различим относительно жанрово близких авторов.
+
+**Ответ на вопрос B.** В полном корпусе Донцовой структура сильнее связана не с серией как таковой, а с периодом публикации: это видно по MDS по δ и проверяется в синтаксическом блоке через PERMANOVA. Такой результат лучше интерпретировать как **внутриавторскую временную динамику**, а не как распад корпуса на несколько резко отделённых авторских стилей.
+
+**Ограничение вывода.** Ни один из методов не доказывает авторство сам по себе: вывод строится на согласовании разных уровней анализа — лексического, синтаксического и стилометрического.
 ---
 
 **Таблицы расстояний:** `output_stylo/stylo/all_40/distance_table_40.csv`, `output_stylo/stylo/dontsova_full/distance_table_full_283.csv`.
