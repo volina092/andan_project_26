@@ -625,12 +625,15 @@ metric_desc <- c(
   `Minimum Tree Depth` = "Минимальная глубина дерева по предложениям.",
   `Maximum Tree Depth` = "Максимальная глубина дерева.",
   `Mean Dependency Distance` = "Средняя дистанция зависимостей (расстояние от вершины до зависимого).",
-  `Node-to-Terminal-Node Ratio` = "Отношение узлов к терминальным узлам (грубая мера «ветвистости»).",
-  `Average Levenshtein Distance between POS` = "Средняя различимость предложений по UPOS-цепочкам (структурная вариативность; считается на сэмпле).",
-  `Average Levenshtein Distance between deprel` = "Средняя различимость предложений по deprel-цепочкам (структурная вариативность; считается на сэмпле).",
-  `Average NP Length` = "Средняя длина именной группы (NP).",
+  `Node-to-Terminal-Node Ratio` = "Отношение узлов к терминальным узлам (мера разветвлённости/иерархичности).",
+  # ↑ отношение числа узлов (и ветвящихся, и не ветвящихся) к числу терминальных узлов (не ветвящихся)
+  `Average Levenshtein Distance between POS` = "Средняя различимость предложений по UPOS-цепочкам (структурная вариативность).",
+  # ↑ считается на сэмпле
+  `Average Levenshtein Distance between deprel` = "Средняя различимость предложений по deprel-цепочкам (структурная вариативность).",
+  # ↑ считается на сэмпле
+  `Average NP Length` = "Средняя длина NP.",
   `Complex NP Ratio` = "Доля «сложных» NP (длина > 1).",
-  `Number of Combined Clauses` = "Число «combined clauses» = clauses - sentences (сколько клауз сверх «базовых»).",
+  `Number of Combined Clauses` = "Число «combined clauses» = clauses - sentences.",
   `Number of Coordinate Clauses` = "Число координированных клауз (conj/parataxis).",
   `Number of Subordinate Clauses` = "Число подчинённых клауз (combined - coordinate).",
   `Coordinate to Combined Clause Ratio` = "Доля координации среди combined clauses.",
@@ -658,7 +661,7 @@ if (length(ratio_cols)) {
 ```
 
 ```{r syntax-features, eval=TRUE}
-# Выбираем только численные фичи и убираем «сырые счётчики» (они сильнее зависят от длины/сегментации).
+# "тупые" счётчики, чистые количественные характеристики
 count_like <- c(
   "Number of Sentences", "Number of Words", "Number of Clauses",
   "Number of Combined Clauses", "Number of Coordinate Clauses", "Number of Subordinate Clauses",
@@ -669,18 +672,18 @@ X_df <- syntax_a %>%
   select(where(is.numeric)) %>%
   select(-any_of(count_like))
 
-# Убираем константные/нулевой дисперсии признаки (иначе scale/prcomp падают)
+# признаки с нулевой дисперсией (scale и prcomp падают, а всё равно неинформативно, раз везде 0)
 sd_vec <- map_dbl(X_df, ~ sd(.x, na.rm = TRUE))
 keep <- is.finite(sd_vec) & sd_vec > 0
 X_df <- X_df %>% select(which(keep))
 
 X <- scale(as.matrix(X_df))
-# на всякий случай: если где-то были NA/Inf после стандартизации
+# если где-то NA/Inf после стандартизации
 X[!is.finite(X)] <- 0
 dim(X)
 ```
 
-### Быстрый тест «однородности»: расстояния внутри Донцовой vs Донцова × дистракторы
+### Тест однородности: расстояния внутри Донцовой vs Донцова × дистракторы
 
 ```{r syntax-distances, eval=TRUE}
 euclid <- as.matrix(dist(X, method = "euclidean"))
@@ -697,8 +700,6 @@ tibble(
   value = c(mean(within_d_vals), mean(between_d))
 )
 ```
-
-Интерпретация: если средняя дистанция **внутри Донцовой** заметно меньше, чем дистанция **Донцова × дистракторы**, то синтаксические признаки поддерживают гипотезу о **едином стилевом профиле кандидата** (по крайней мере, в смешанном корпусе части A).
 
 ```{r syntax-interpretation, eval=TRUE, echo=FALSE, results='asis'}
 if (!exists("within_d_vals") || !exists("between_d")) {
@@ -735,7 +736,7 @@ ggplot(pca_xy, aes(x = PC1, y = PC2, colour = автор, shape = роль)) +
 
 ### Визуализация: MDS по синтаксическим метрикам (40 текстов)
 
-Как и для δ Бёрроуза, можно построить MDS на основе матрицы расстояний. Здесь расстояния считаются как евклидовы дистанции по **z-score** синтаксических признаков.
+MDS на основе матрицы расстояний. Здесь расстояния считаются как евклидовы дистанции по **z-score** для совокупности синтаксических признаков.
 
 ```{r syntax-mds, eval=TRUE, fig.width = 11, fig.height = 8}
 mds_xy <- cmdscale(as.dist(dist(X)), k = 2)
@@ -747,10 +748,6 @@ mds_df <- tibble(
   mutate(
     фамилия = word(автор, -1),
     подпись = str_squish(paste(фамилия, год, название))
-```
-
-
-```{r syntax-mds, eval=TRUE, fig.width = 11, fig.height = 8}
 ```
 
 
@@ -779,12 +776,13 @@ p_mds_syn
 
 ### Визуализация: heatmap синтаксических дистанций (40 текстов)
 
-Это аналог heatmap δ: чем светлее клетка, тем **ближе** пара текстов по синтаксическому профилю.
+Чем светлее клетка, тем **ближе** пара текстов по синтаксическому профилю.
 
 ```{r syntax-heatmap, eval=TRUE, fig.width = 12, fig.height = 10}
 dist_mat <- as.matrix(dist(X, method = "euclidean"))
 
-# упорядочим по автору и году, чтобы блоки «автор × автор» были виднее
+# упорядочивание по автору и году
+# нужно чтобы блоки «автор × автор» были виднее
 ord <- syntax_a %>%
   mutate(
     фамилия = word(автор, -1),
@@ -836,10 +834,10 @@ plot(
 )
 ```
 
-### Какие синтаксические признаки сильнее всего отличают Донцову (часть A)
+### Характерные для Донцовой синтаксические признаки
 
-Ниже — эксплоранторная «важность» признаков: для каждого синтаксического показателя считается **эффект‑размер (Cohen’s d)** между группами
-«Донцова» и «все остальные авторы». Большое \(|d|\) означает, что признак систематически выше/ниже у Донцовой в смешанном корпусе.
+Эксплоранторная важность признаков: для каждого синтаксического показателя считается **эффект‑размер (Cohen’s d)** между группами
+«Донцова» и «все остальные». Большая \(|d|\) означает, что признак систематически выше/ниже у Донцовой в смешанном корпусе.
 
 ```{r syntax-feature-importance, eval=TRUE}
 cohen_d <- function(x1, x0) {
@@ -863,7 +861,7 @@ feature_labels <- c(
   "Median Tree Depth" = "медианная глубина дерева",
   "Maximum Tree Depth" = "макс. глубина дерева",
   "Mean Dependency Distance" = "ср. дистанция зависимостей",
-  "Node-to-Terminal-Node Ratio" = "отношение узлов к терминальным",
+  "Node-to-Terminal-Node Ratio" = "отношение всех узлов к терминальным",
   "Average NP Length" = "ср. длина именной группы",
   "Complex NP Ratio" = "доля «сложных» NP",
   "Coordinate Clause to Sentence Ratio" = "координация на предложение",
@@ -919,7 +917,7 @@ ggplot(top_plot, aes(x = reorder(label, abs_d), y = abs_d, fill = direction)) +
 
 ### Отдельные визуализации для нескольких синтаксических фич
 
-Ниже — несколько интерпретируемых метрик (без стандартизации), чтобы видно было, *какие именно* компоненты синтаксиса расходятся между авторами.
+Несколько интерпретируемых метрик (без стандартизации).
 
 ```{r syntax-selected-features-plot, eval=TRUE, fig.width = 11, fig.height = 8}
 selected <- c(
@@ -954,7 +952,7 @@ ggplot(sel_long, aes(x = автор, y = value, colour = роль)) +
   geom_jitter(width = 0.15, alpha = 0.8, size = 1.4) +
   facet_wrap(~ feature, scales = "free_y", ncol = 2) +
   labs(
-    title = "Несколько синтаксических метрик по авторам (часть A, 40 текстов)",
+    title = "Конкретные синтаксические метрики (часть A, 40 текстов)",
     x = NULL, y = NULL, colour = "Роль"
   ) +
   theme_minimal() +
@@ -965,20 +963,12 @@ ggplot(sel_long, aes(x = автор, y = value, colour = роль)) +
 
 **Дельта Бёрроуза** сравнивает частотные профили текстов (чаще всего — N самых частых словоформ, MFW). 
 
-Используем `books_tokens/` (не леммы).
-
 <!-- MFW -- Most Frequent Words  -->
 
-Интерпретация в проекте:
-
-- **весь корпус (40 текстов):** кластеризуются ли 20 книг Донцовой вместе, отдельно от дистракторов;
-
-- **только Донцова (часть B, 283 текста):** насколько тексты расходятся внутри автора и по сериям.
+Используем `books_tokens/` (не леммы).
 
 
 ## Подготовка корпуса для stylo
-
-<!-- ! `stylo()` ищет `.txt` в `corpus.dir` (без вложенных папок).  -->
 
 ```{r stylo-prep}
 build_stylo_corpus <- function(metadata, token_paths_col, out_dir, max_words = NULL) {
@@ -999,7 +989,8 @@ build_stylo_corpus <- function(metadata, token_paths_col, out_dir, max_words = N
       stop("Нет файла: ", src)
     }
 
-    # одно слово на строку, иначе процесс идёт 20+ минут или падает
+    # реструктурируем: одно слово на строку
+    # иначе процесс падает или выполняется 20+ минут
     words <- read_lines(src, locale = locale(encoding = "UTF-8"), progress = FALSE) %>%
       paste(collapse = " ") %>%
       str_split("\\s+") %>%
@@ -1039,7 +1030,7 @@ stylo_mfw_step <- 100
 stylo_distance <- "delta"
 stylo_analysis <- "BCT"
 
-# кириллица в PDF: стандартный шрифт Helvetica её не содержит
+# кириллица в PDF
 cyr_font <- if (.Platform$OS.type == "windows") "Segoe UI" else "DejaVu Sans"
 grDevices::pdf.options(family = cyr_font)
 ```
@@ -1074,7 +1065,7 @@ save(stylo_result, file = file.path(path_stylo_out, "all_40", "stylo_result.RDat
 out_dir <- file.path(path_stylo_out, "all_40")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
-# шрифт с кириллицей для PDF (в Helvetica нет кириллицы)
+# кириллица для PDF
 if (!exists("cyr_font")) {
   cyr_font <- if (.Platform$OS.type == "windows") "Segoe UI" else "DejaVu Sans"
 }
@@ -1107,7 +1098,6 @@ ggsave_pdf <- function(filename, plot, width, height) {
 
 delta_mat <- as.matrix(stylo_result$distance.table)
 
-# непустые rownames или colnames
 file_ids <- rownames(delta_mat)
 if (is.null(file_ids) || any(file_ids == "", na.rm = TRUE)) {
   file_ids <- colnames(delta_mat)
@@ -1121,7 +1111,7 @@ stylo_labels <- meta %>%
     подпись = str_squish(paste(фамилия, год, название))
   )
 
-# сопоставляем stylo-имена файлов с подписями из meta (stylo может убирать «.txt» в rownames)
+# сопоставляем stylo-имена файлов с подписями из meta
 file_ids_norm <- sub("\\.txt$", "", file_ids)
 stylo_ids_norm <- sub("\\.txt$", "", stylo_labels$stylo_id)
 
@@ -1129,16 +1119,16 @@ idx <- match(file_ids_norm, stylo_ids_norm)
 pretty_labels <- stylo_labels$подпись[idx]
 authors <- stylo_labels$автор[idx]
 
-# если что-то не сопоставилось — оставляем техническое имя, чтобы не было пустых rownames
+# что-то не сопоставилось → оставляем "техническое имя" (чтобы не было пустых rownames)
 if (any(is.na(pretty_labels))) {
   warning("Не сопоставлены с meta: ", paste(file_ids[is.na(pretty_labels)], collapse = ", "))
   pretty_labels[is.na(pretty_labels)] <- file_ids[is.na(pretty_labels)]
 }
 
-# переименовывать строки/столбцы матрицы δ для heatmap и dendrogram
+# красивые строки/столбцы матрицы δ для heatmap и dendrogram
 rownames(delta_mat) <- colnames(delta_mat) <- pretty_labels
 
-# Тепловая карта δ
+# heatmap δ
 delta_long <- delta_mat %>%
   as.data.frame(check.names = FALSE) %>%
   rownames_to_column(var = "text_1") %>%
@@ -1160,7 +1150,7 @@ p_heat <- ggplot(delta_long, aes(x = text_1, y = text_2, fill = delta)) +
 ggsave(file.path(out_dir, "delta_heatmap_40.png"), p_heat, width = 14, height = 12, dpi = 150)
 ggsave_pdf(file.path(out_dir, "delta_heatmap_40.pdf"), p_heat, width = 14, height = 12)
 
-# 2. MDS (2D)
+# 2. MDS по δ
 mds_xy <- cmdscale(as.dist(delta_mat), k = 2)
 p_mds <- tibble(
   подпись = pretty_labels,
@@ -1185,13 +1175,14 @@ if (requireNamespace("ggrepel", quietly = TRUE)) {
 ggsave(file.path(out_dir, "delta_mds_40.png"), p_mds, width = 12, height = 10, dpi = 150)
 ggsave_pdf(file.path(out_dir, "delta_mds_40.pdf"), p_mds, width = 12, height = 10)
 
-# 3. Дендрограмма
+# 3. Дендрограмма по δ
 hc <- hclust(as.dist(delta_mat), method = "ward.D2")
 hc$labels <- pretty_labels
 
 save_dendro <- function(path, width, height, res = NULL, use_cairo = FALSE) {
   max_lab_chars <- max(nchar(pretty_labels, type = "width"), na.rm = TRUE)
-  # при horiz = TRUE подписи справа — нужен большой правый отступ (mar[4]), не левый
+  # при horiz = TRUE подписи справа
+  # поэтому большой правый отступ (mar[4])
   mar_right <- max(16, min(40, max_lab_chars * 0.42))
   mar_spec <- c(4, 2, 4, mar_right)
 
@@ -1233,9 +1224,10 @@ list.files(out_dir, pattern = "\\.(png|pdf)$")
 
 В этой части анализируются **только** книги Донцовой из отобранного корпуса (сейчас **283** текста, 6 серий).
 
-**Метаданные:** `corpus_metadata_dontsova_full.csv` — пересобрать: `python scripts/build_dontsova_full_metadata.py` (годы с [FantLab](https://fantlab.ru/autor14039)). Исключены короткие повести, «Британец…», сборник «Кекс от сапожника» и др.; число строк в CSV = число текстов в пайплайне.
+**Метаданные:** `corpus_metadata_dontsova_full.csv`
+<!-- пересобрать: `python scripts/build_dontsova_full_metadata.py` (годы с [FantLab](https://fantlab.ru/autor14039)). -->
 
-**Имена файлов** в `books_dontsova_full_clean/`, `books_dontsova_full_tokens/`, `books_dontsova_full_lemmas/` и `corpus_stylo_dontsova_full/`:
+**Имена файлов:** в `books_dontsova_full_clean/`, `books_dontsova_full_tokens/`, `books_dontsova_full_lemmas/` и `corpus_stylo_dontsova_full/`:
 
 | Код | Серия | Пример |
 |-----|-------|--------|
@@ -1246,11 +1238,8 @@ list.files(out_dir, pattern = "\\.(png|pdf)$")
 | СК | Степанида Козлова | `СК_Развесистая клюква Голливуда.txt` |
 | ТС | Татьяна Сергеева | `ТС_Старуха Кристи – отдыхает!.txt` |
 
-Исходники в `books_dontsova_full_corpora/` не переименовываются; связь «старый файл → новое имя» хранится в колонках `путь_исходник` и `имя_файла` CSV.
-
-Пайплайн части B **независим** от части A: отдельные папки `books_dontsova_full_*`, `corpus_stylo_dontsova_full/`, результаты — `output_stylo/stylo/dontsova_full/`.
-
-**Равная длина (часть B):** `python scripts/truncate_dontsova_full_clean.py` — усечение `books_dontsova_full_clean/` (**целые предложения**, ≤ **37 000 лексических токенов**); затем пересборка `books_dontsova_full_tokens/` и лемм в Rmd.
+<!-- Исходники в `books_dontsova_full_corpora/` не переименовываются
+связь "старое имя → новое имя" хранится в колонках `путь_исходник` и `имя_файла` в CSV с метадатой. -->
 
 ## Пути и метаданные (часть B)
 
@@ -1311,7 +1300,7 @@ meta_b %>% count(серия, sort = TRUE)
 ```
 
 ```{r helpers-dontsova-period}
-# Пятилетние периоды издания (часть B): 1999–2004, 2005–2009, …, 2020–2025
+# делим корпус на пятилетние периоды издания (часть B): 1999–2004, 2005–2009, …, 2020–2025
 assign_year_period <- function(
   y,
   anchor = 1999L,
@@ -1350,9 +1339,10 @@ year_period_factor <- function(years) {
 ## Очистка исходников
 
 ```{r clean-dontsova-full}
+# я уже не помню, нужно это сейчас или нет, главное, что в конце концов берутся тексты нужной длины
 source(file.path(project_root, "R", "clean_corpus.R"))
 
-# Пересборка с нуля: python scripts/clean_dontsova_full_corpus.py --force
+# чтобы пересобрать python scripts/clean_dontsova_full_corpus.py --force
 skip_existing_clean_b <- TRUE
 
 for (i in seq_len(nrow(meta_b))) {
