@@ -1,3 +1,0 @@
-﻿books 0 Counter()
-lookup size 0
-sample None None
