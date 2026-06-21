@@ -78,18 +78,17 @@ knitr::opts_chunk$set(
 
 **Данные:** тексты и метаданные — [Google Drive](https://drive.google.com/drive/folders/1NPe0Bie78GWEhoG26tI2g0z1wCPiNzky) (`books_clean/`, `books_dontsova_full_clean/`, `books_dontsova_full_corpora/`, `corpus_metadata.csv`, `corpus_metadata_dontsova_full.csv`).
 
-
 ---
 
 # 1. Общая подготовка данных
 
 Для **дельты Бёрроуза** (stylo) и для **TTR** нужен единообразный лексический слой: слова в нижнем регистре, без пунктуации, разделённые пробелами. Словоформы — в `books_tokens/`; леммы — в `books_lemmas/`.
 
-Исходник для обоих шагов: **`books_clean/`**.
+Исходник: тексты в папке **`books_clean/`**.
 
 **Равная длина (часть A):**
 
-1. `python scripts/truncate_clean_corpus.py` — усечение `books_clean/` (по умолчанию **целые предложения**, ≤ 27 000 слов)
+1. `python scripts/truncate_clean_corpus.py` — усечение `books_clean/` (нарезка по границе предложения, ≤ 27 000 слов)
 2. `python scripts/rebuild_part_a_tokens.py` — пересборка `books_tokens/`
 3. В RStudio: `recompute_lemmas <- TRUE` и chunk `lemmatize-corpus` с `skip_existing = FALSE`
 
@@ -128,7 +127,7 @@ meta <- read_csv(
   )
 ```
 
-## Функция: один файл
+## Функция
 
 Нормализация: нижний регистр, всё, кроме русских/латинских букв и пробелов, заменяется пробелом; лишние пробелы удалены. На выходе — `.txt`.
 
@@ -236,12 +235,10 @@ recompute_lemmas <- TRUE
 
 ```{r udpipe-model}
 # UDPipe-модель загружается один раз за сессию.
-# После restart'а R или удаления файла модели `udpipe` может пытаться перезагрузить модель
-# по пути, которого уже нет. Поэтому делаем «надёжную» загрузку с автоскачиванием.
 load_udpipe_model_safe <- function(language) {
   model_info <- udpipe_download_model(language = language)
   if (!file.exists(model_info$file_model)) {
-    stop("Файл модели UDPipe не найден после скачивания: ", model_info$file_model)
+    stop("ALARM! Файл модели UDPipe не найден после скачивания: ", model_info$file_model)
   }
   udpipe_load_model(model_info$file_model)
 }
@@ -355,7 +352,7 @@ meta %>%
 
 # Часть A. Сравнение кандидата и дистракторов (40 текстов)
 
-В этой части проверяется, отделяются ли тексты Донцовой от близких по жанру авторов (дистракторов) по лексическим показателям и по δ Бёрроуза.
+В этой части проверяется, отделяются ли тексты Донцовой от близких по жанру авторов (дистракторов) по лексическим показателям, синтаксическим показателям и δ Бёрроуза.
 
 ## Лексические метрики (TTR, гапаксы)
 
@@ -365,7 +362,7 @@ $$\text{TTR} = \frac{\text{types}}{\text{tokens}}$$
 
 <!-- Чем ниже TTR, тем больше повторяемость лексики. -->
 
-Источник: лемматизированные файлы в `books_lemmas/` (для stylo по-прежнему — `books_tokens/`).
+Источник: лемматизированные файлы в `books_lemmas/` (для stylo — `books_tokens/`).
 
 ## TTR по книгам
 
@@ -582,9 +579,8 @@ if (!exists("ttr_books") || !exists("hapax_books")) {
 - результат сохранён в `python_syntax part/output/syntaxcomp_metrics.csv`.
 
 Примечания:
-
-- автор `syntaxcomp` предупреждала о баге в извлечении **T-unit** → метрики, завязанные на T-unit, исключены;
-- `lev_pos` и `lev_dep` (Левенштейн по цепочкам UPOS / deprel) считаются на **сэмпле предложений** (иначе для книги получается \(O(n^2)\) по числу предложений и расчёт может занимать очень долго).
+- `lev_pos` и `lev_dep` (расстояние Левенштейна по цепочкам UPOS / deprel) считаются на сэмпле из 250 предложений
+<!-- иначе слишком долгий рассчёт получается -->
 
 ```{r syntax-packages, eval=TRUE}
 library(tidyverse)
@@ -604,7 +600,6 @@ syntax_raw <- read_csv(
   show_col_types = FALSE
 )
 
-# Только часть A: 40 книг (кандидат + дистракторы)
 syntax_a <- syntax_raw %>%
   semi_join(meta %>% select(папка, имя_файла), by = c("папка", "имя_файла")) %>%
   left_join(meta %>% select(папка, имя_файла, роль), by = c("папка", "имя_файла"))
@@ -615,27 +610,21 @@ syntax_a %>%
 
 ### Перечень синтаксических метрик и их смысл (часть A)
 
-Ниже — формальный список метрик, которые присутствуют в `syntaxcomp_metrics.csv` и используются в анализе части A.
-
-Примечания:
-
-- «сырые счётчики» (например, `Number of Words`) в PCA/дистанциях обычно **не используются**, чтобы не “мерить длину текста” вместо синтаксиса;
-- метрики, завязанные на **T-unit**, исключены из пайплайна (известная проблема в `syntaxcomp`);
-- колонки вида `*_ratio` — это доли типов клауз (по UD deprel) среди всех извлечённых клауз.
+<!-- колонки вида `*_ratio` — это доли типов клауз (по UD deprel) среди всех извлечённых клауз. -->
 
 ```{r syntax-metric-list, eval=TRUE}
 metric_desc <- c(
-  `Number of Sentences` = "Число предложений (после сегментации UDPipe).",
+  `Number of Sentences` = "Число предложений.",
   `Number of Words` = "Число слов (токены без PUNCT/SYM).",
-  `Number of Clauses` = "Число извлечённых клауз (структурные единицы на основе зависимостей).",
-  `Mean Sentence Length` = "Средняя длина предложения (слов).",
-  `Mean Clause Length` = "Средняя длина клаузы (слов).",
-  `Mean Number of Clauses per Sentence` = "Среднее число клауз на предложение (степень усложнения/многоклаузности).",
+  `Number of Clauses` = "Число извлечённых клауз.",
+  `Mean Sentence Length` = "Средняя длина предложения (в словах).",
+  `Mean Clause Length` = "Средняя длина клаузы (в словах).",
+  `Mean Number of Clauses per Sentence` = "Среднее число клауз на предложение.",
   `Mean Tree Depth` = "Средняя глубина дерева зависимостей (вложенность).",
-  `Median Tree Depth` = "Медианная глубина дерева (устойчивее к редким «выбросам»).",
+  `Median Tree Depth` = "Медианная глубина дерева.",
   `Minimum Tree Depth` = "Минимальная глубина дерева по предложениям.",
-  `Maximum Tree Depth` = "Максимальная глубина дерева (редкие «очень вложенные» фразы).",
-  `Mean Dependency Distance` = "Средняя дистанция зависимостей |head-token| (размашистость/локальность связей).",
+  `Maximum Tree Depth` = "Максимальная глубина дерева.",
+  `Mean Dependency Distance` = "Средняя дистанция зависимостей (расстояние от вершины до зависимого).",
   `Node-to-Terminal-Node Ratio` = "Отношение узлов к терминальным узлам (грубая мера «ветвистости»).",
   `Average Levenshtein Distance between POS` = "Средняя различимость предложений по UPOS-цепочкам (структурная вариативность; считается на сэмпле).",
   `Average Levenshtein Distance between deprel` = "Средняя различимость предложений по deprel-цепочкам (структурная вариативность; считается на сэмпле).",
