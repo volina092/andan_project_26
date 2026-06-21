@@ -30,6 +30,11 @@ SERIES_FOLDERS = {
 FORBIDDEN_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*]')
 YEAR_IN_TITLE_RE = re.compile(r"(?<!\d)(19|20)\d{2}(?!\d)")
 
+# тексты-сборники / не один автор — не включаются в CSV
+SKIP_SOURCE_TITLE_KEYS = {
+    "кекс от сапожника",
+}
+
 # сборники / дубликаты, которых нет на FantLab как отдельных книг
 MANUAL_YEARS: dict[tuple[str, str], int] = {
     ("ДВ", "темное прошлое конька горбунка сборник"): 2010,
@@ -146,6 +151,9 @@ def main() -> None:
         files = sorted(series_dir.glob("*.txt"), key=lambda p: p.name.lower())
         for i, path in enumerate(files, start=1):
             title = parse_title(path.name)
+            if norm_title(title) in SKIP_SOURCE_TITLE_KEYS:
+                print(f"SKIP (сборник): {path.name}")
+                continue
             year = resolve_year(title, series_code, fantlab_years, local_years)
             fname = unique_filename(series_code, title, used_names)
 

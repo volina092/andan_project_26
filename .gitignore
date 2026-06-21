@@ -1,2 +1,34 @@
+# Тексты произведений и производные (не публикуются — авторское право)
+books/
+books_clean/
+books_tokens/
+books_lemmas/
+
+books_dontsova_full/
 books_dontsova_full_corpora/
 books_dontsova_full_clean/
+books_dontsova_full_tokens/
+books_dontsova_full_lemmas/
+books_doncova_full_handclean/
+
+corpus_stylo/
+corpus_stylo_dontsova_full/
+corpus_stylo_test/
+
+python_syntax part/cache_conllu_udpipe/
+python_syntax part/dontsova_full_cache_conllu_udpipe/
+python_syntax part/.ipynb_checkpoints/
+
+# Большие/воспроизводимые артефакты анализа
+output/
+output_stylo/**/*.RData
+*.RData
+
+# R / Python / OS
+.Rhistory
+.Rproj.user
+.Renviron
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

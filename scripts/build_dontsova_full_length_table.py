@@ -34,6 +34,7 @@ SHORT_TEXT_IDS = {
 EXCLUDE_FROM_COMPARISON_IDS = SHORT_TEXT_IDS | {
     "podushkin_040",  # сборник «Книги 1–27»
     "sergeeva_002",   # Британец китайского производства (~13,5 тыс. токенов)
+    "dasha_077",      # «Кекс от сапожника» — сборник «Новогодний детектив 2015», другие авторы
 }
 
 MIN_TOKENS_FOR_COMPARISON = 37_000
